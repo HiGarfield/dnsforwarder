@@ -517,7 +517,7 @@ static int TcpM_Cleanup(TcpM *m)
     {
         m->ProxyPuller.Free(&(m->ProxyPuller));
         SocketPullers_Free(m->Proxies);
-        SafeFree(*(m->SocksProxies));
+        SafeFree(m->SocksProxies);
         AddressList_Free(&(m->SocksProxyList));
         SafeFree(m->SocksProxyFamilies);
     }

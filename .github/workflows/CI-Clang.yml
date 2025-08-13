@@ -15,12 +15,6 @@ jobs:
             bin: codeblocks_win/bin/Release/dnsforwarder.exe
             shell: msys2 {0}
 
-          - os: windows-latest
-            env: i686
-            sys: clang32
-            bin: codeblocks_win/bin/Release/dnsforwarder.exe
-            shell: msys2 {0}
-
           - os: ubuntu-latest
             env: amd64
             bin: dnsforwarder

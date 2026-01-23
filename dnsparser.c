@@ -34,7 +34,12 @@ int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart
             {
                 return -1;
             }
-            NameItr = DNSBody + DNSLabelGetPointer(NameItr);
+            if( NameItr == DNSBody + LabelPointer )
+            {
+                // malformed, dead loop
+                return -1;
+            }
+            NameItr = DNSBody + LabelPointer;
         } else {
             if( DNSBody != NULL &&
                 NameItr + LabelCount > DNSBody + DNSBodyLength

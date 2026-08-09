@@ -616,6 +616,7 @@ TcpM_Works(TcpM *m)
         } else {
             int State;
             uint16_t TCPLength;
+            uint16_t TotalLength;
             SocketPuller *p2;
             char *PartialData;
 
@@ -654,17 +655,28 @@ TcpM_Works(TcpM *m)
             }
 
             PartialData = Entity;
-            do
+            TotalLength = TCPLength;
+            while( TCPLength > 0 )
             {
                 State = TcpM_RecvWrapper(s, PartialData, TCPLength);
+                /* A non-positive result is an error or a closed
+                   connection, never a length. Applying it would move
+                   PartialData backwards out of the buffer and, because
+                   TCPLength is unsigned, wrap it to a huge value. */
+                if( State <= 0 )
+                {
+                    break;
+                }
+
                 PartialData += State;
                 TCPLength -= State;
-            } while ( State > 0 && TCPLength > 0 );
+            }
 
             if( TCPLength != 0 )
             {
                 WARNING("TCP %s received bad data, len: %d.\n",
-                        m->SocksProxies != NULL ? "proxy" : "server", PartialData - Entity);
+                        m->SocksProxies != NULL ? "proxy" : "server",
+                        (int)(PartialData - Entity));
                 CLOSE_SOCKET(s);
                 continue;
             }
@@ -677,7 +689,7 @@ TcpM_Works(TcpM *m)
             IHeader_Fill(Header,
                          FALSE,
                          Entity,
-                         State,
+                         TotalLength,
                          NULL,
                          INVALID_SOCKET,
                          AF_UNSPEC,

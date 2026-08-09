@@ -39,6 +39,11 @@ static int SimpleHT_AddToSlot(SimpleHT *ht, Sht_NodeHead *Node, int NodeSubscrip
     int NumberOfSlots = Array_GetUsed(&(ht->Slots));
     Sht_Slot *TheSlot;
 
+    if( Node == NULL || NumberOfSlots <= 0 )
+    {
+        return -1;
+    }
+
     TheSlot = Array_GetBySubscript(&(ht->Slots), Node->HashValue % NumberOfSlots);
     if( TheSlot == NULL )
     {
@@ -62,15 +67,26 @@ static int SimpleHT_Expand(SimpleHT *ht)
     {
         if( Array_PushBack(&(ht->Slots), &EmptySlot, NULL) < 0 )
         {
+            /* Roll back the slots added so far, otherwise the table is
+               left with a slot count that no longer matches the chains
+               hanging off it. */
+            ht->Slots.Used = NumberOfSlots_Old;
             return -1;
         }
     }
 
-    memset(ht->Slots.Data, -1, NumberOfSlots_Old * ht->Slots.DataLength);
+    /* Reset every slot, both the pre-existing ones and the ones just
+       appended, before the nodes are redistributed below. */
+    memset(ht->Slots.Data, -1, Array_GetUsed(&(ht->Slots)) * ht->Slots.DataLength);
 
     for( loop = 0; loop < NumberOfNodes; ++loop )
     {
         nh = Array_GetBySubscript(&(ht->Nodes), loop);
+        if( nh == NULL )
+        {
+            continue;
+        }
+
         SimpleHT_AddToSlot(ht, nh, loop);
     }
 
@@ -91,7 +107,10 @@ const char *SimpleHT_Add(SimpleHT *ht, const char *Key, int KeyLength, const cha
             return NULL;
         }
 
-        ht->LeftSpace = NumberOfSlots_Old * ht->MaxLoadFactor;
+        /* Only the slots that were just added contribute new capacity;
+           the pre-existing ones are already accounted for. */
+        ht->LeftSpace = (Array_GetUsed(&(ht->Slots)) - NumberOfSlots_Old)
+                        * ht->MaxLoadFactor;
     }
 
     NewSubscript = Array_PushBack(&(ht->Nodes), NULL, NULL);
@@ -101,6 +120,10 @@ const char *SimpleHT_Add(SimpleHT *ht, const char *Key, int KeyLength, const cha
     }
 
     New = Array_GetBySubscript(&(ht->Nodes), NewSubscript);
+    if( New == NULL )
+    {
+        return NULL;
+    }
 
     if( HashValue == NULL )
     {

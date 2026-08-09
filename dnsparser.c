@@ -185,16 +185,58 @@ char *GetAllAnswers(char *DNSBody, int DNSBodyLength, char *Buffer, int BufferLe
     return Buffer;
 }
 
-/* Full label length returned, including terminated-zero */
-int DNSCopyLable(const char *DNSBody, char *here, const char *src)
+/* Full label length returned, including terminated-zero.
+   Returns -1 if the message is malformed. */
+int DNSCopyLable(const char *DNSBody,
+                 int DNSBodyLength,
+                 char *here,
+                 const char *src
+                 )
 {
     int FullLength = 0;
+    int RedirectCount = 0;
+
+    if( DNSBody == NULL || src == NULL || DNSBodyLength <= 0 )
+    {
+        return -1;
+    }
 
     while( TRUE )
     {
+        /* Every byte read must lie inside the message. */
+        if( src < DNSBody || src >= DNSBody + DNSBodyLength )
+        {
+            return -1;
+        }
+
         if( DNSIsLabelPointerStart(GET_8_BIT_U_INT(src)) )
         {
-            src = DNSBody + DNSLabelGetPointer(src);
+            int LabelPointer;
+
+            /* A compression pointer occupies two bytes. */
+            if( src + 1 >= DNSBody + DNSBodyLength )
+            {
+                return -1;
+            }
+
+            LabelPointer = DNSLabelGetPointer(src);
+
+            if( LabelPointer < 0 || LabelPointer >= DNSBodyLength )
+            {
+                return -1;
+            }
+
+            /* Guard against pointers referencing each other in a cycle.
+               Each redirection consumes at least two bytes of the
+               message, so a valid message cannot redirect more than
+               DNSBodyLength / 2 times. */
+            ++RedirectCount;
+            if( RedirectCount > DNSBodyLength / 2 )
+            {
+                return -1;
+            }
+
+            src = DNSBody + LabelPointer;
         } else {
             ++FullLength;
 

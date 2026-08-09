@@ -603,15 +603,22 @@ static int DnsGenerator_CopyNamePart(DnsGenerator *g,
                                      DnsSimpleParserIterator *i
                                      )
 {
-    if( LEFT_LENGTH(g) < DNSCopyLable(i->Parser->RawDns,
-                                      NULL,
-                                      i->CurrentPosition)
-      )
+    int LabelLength = DNSCopyLable(i->Parser->RawDns,
+                                   i->Parser->RawDnsLength,
+                                   NULL,
+                                   i->CurrentPosition
+                                   );
+
+    if( LabelLength < 0 || LEFT_LENGTH(g) < LabelLength )
     {
         return -1;
     }
 
-    g->Itr += DNSCopyLable(i->Parser->RawDns, g->Itr, i->CurrentPosition);
+    g->Itr += DNSCopyLable(i->Parser->RawDns,
+                           i->Parser->RawDnsLength,
+                           g->Itr,
+                           i->CurrentPosition
+                           );
 
     return 0;
 }
@@ -656,9 +663,15 @@ static int DnsGenerator_CopyCName(DnsGenerator *g, DnsSimpleParserIterator *i)
     }
 
     CNameLabelLength = DNSCopyLable(i->Parser->RawDns,
+                                    i->Parser->RawDnsLength,
                                     NULL,
                                     i->RowData(i)
                                     );
+
+    if( CNameLabelLength < 0 )
+    {
+        return -7;
+    }
 
     if( DnsGenerator_16Uint(g, CNameLabelLength) != 0 )
     {
@@ -670,7 +683,11 @@ static int DnsGenerator_CopyCName(DnsGenerator *g, DnsSimpleParserIterator *i)
         return -6;
     }
 
-    g->Itr += DNSCopyLable(i->Parser->RawDns, g->Itr, i->RowData(i));
+    g->Itr += DNSCopyLable(i->Parser->RawDns,
+                           i->Parser->RawDnsLength,
+                           g->Itr,
+                           i->RowData(i)
+                           );
 
     SET_16_BIT_U_INT(g->NumberOfRecords,
                      GET_16_BIT_U_INT(g->NumberOfRecords) + 1

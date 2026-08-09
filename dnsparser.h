@@ -141,7 +141,11 @@ typedef struct _DNSHeader{
 /* Convert a DNS message to text */
 char *GetAllAnswers(char *DNSBody, int DNSBodyLength, char *Buffer, int BufferLength);
 
-int DNSCopyLable(const char *DNSBody, char *here, const char *src);
+int DNSCopyLable(const char *DNSBody,
+                 int DNSBodyLength,
+                 char *here,
+                 const char *src
+                 );
 
 /**
   New Implementation

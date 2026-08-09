@@ -14,6 +14,7 @@ int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart
     const char *NameItr = NameStart;
     int LabelsLength = 0;
     BOOL Redirected = FALSE;
+    int RedirectCount = 0;
     int LabelCount = GET_8_BIT_U_INT(NameItr); /* The amount of characters of the next label */
     while( LabelCount != 0 )
     {
@@ -29,12 +30,33 @@ int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart
             {
                 break;
             }
+            /* A compression pointer needs two bytes, both of which must
+               reside inside the message. */
+            if( DNSBody != NULL &&
+                NameItr + 1 >= DNSBody + DNSBodyLength
+                )
+            {
+                return -1;
+            }
             LabelPointer = DNSLabelGetPointer(NameItr);
-            if( LabelPointer > DNSBodyLength )
+            /* The target offset must be a valid position inside the
+               message. Note that an offset equal to the body length is
+               already out of bounds. */
+            if( LabelPointer < 0 || LabelPointer >= DNSBodyLength )
             {
                 return -1;
             }
             if( NameItr == DNSBody + LabelPointer )
+            {
+                // malformed, dead loop
+                return -1;
+            }
+            /* Guard against malformed messages whose pointers reference
+               each other in a cycle. Every redirection must consume at
+               least two bytes of the message, therefore no valid message
+               can redirect more than DNSBodyLength / 2 times. */
+            ++RedirectCount;
+            if( RedirectCount > DNSBodyLength / 2 )
             {
                 // malformed, dead loop
                 return -1;

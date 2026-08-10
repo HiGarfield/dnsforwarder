@@ -344,7 +344,15 @@ PRIFUNC int HostsContainer_AddGoodIpList(HostsContainer *Container,
 {
     char            Trimed[128];
 
-    sscanf(ListName, "<%127[^>]", Trimed);
+    Trimed[0] = '\0';
+
+    /* Only trust the conversion when sscanf actually matched the <...> pattern.
+       Otherwise Trimed would keep its (uninitialized) stack contents and
+       strlen() below could read out of bounds. */
+    if( sscanf(ListName, "<%127[^>]", Trimed) != 1 )
+    {
+        return -1;
+    }
 
     return HostsContainer_AddNode(Container,
                                   Domain,

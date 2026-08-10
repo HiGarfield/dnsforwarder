@@ -100,6 +100,14 @@ static int IPMisc_Process(IPMisc *m,
         }
 
         RowDataPos = i.RowData(&i);
+        /* The RDATA must stay inside the DNS message buffer. Otherwise the
+           lookup below reads out of bounds, and a SUBSTITUTE action would
+           write out of bounds. */
+        if( RowDataPos == NULL ||
+            (const char *)RowDataPos + DataLength > DNSPackage + PackageLength )
+        {
+            continue;
+        }
         if( IpChunk_Find(&(m->c),
                          (unsigned char *)RowDataPos,
                          DataLength,

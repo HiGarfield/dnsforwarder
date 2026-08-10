@@ -287,7 +287,7 @@ int GoodIpList_Init(ConfigFileInfo *ConfigInfo)
 
 const char *GoodIpList_Get(const char *List)
 {
-    ListInfo   *m;
+    ListInfo   *m = NULL;
     if( StringChunk_Match_NoWildCard(GoodIpList,
                                      List,
                                      NULL,
@@ -295,7 +295,9 @@ const char *GoodIpList_Get(const char *List)
                                      NULL,
                                      NULL
                                      )
-       == TRUE )
+       == TRUE &&
+       m != NULL
+       )
     {
         if( Array_GetUsed(&(m->List)) <= 0 )
         {

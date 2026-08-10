@@ -86,12 +86,18 @@ int SafeRealloc(void **Memory_ptr, size_t NewBytes)
 
 char *StrToLower(char *str)
 {
+    char *head = str;
+
+    /* The contract (utils.h) promises to return the original `str` pointer.
+       The previous implementation returned the trailing NUL position.
+       Cast to unsigned char to avoid undefined behaviour when `*str` is a
+       negative (non-ASCII) byte. */
     while( *str != '\0' )
     {
-        *str = tolower(*str);
+        *str = (char)tolower((unsigned char)*str);
         ++str;
     }
-    return str;
+    return head;
 }
 
 char *BoolToYesNo(BOOL value)

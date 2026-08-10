@@ -193,8 +193,17 @@ static int FilterType_Init(ConfigFileInfo *ConfigInfo)
     OneTypePendingToAdd_Str = sli.Next(&sli);
     while( OneTypePendingToAdd_Str != NULL )
     {
-        sscanf(OneTypePendingToAdd_Str, "%d", &OneTypePendingToAdd);
-        DisabledTypes->Add(DisabledTypes, &OneTypePendingToAdd);
+        /* Initialise first so a failed parse never feeds an uninitialised
+           value into the BST (which would silently disable/enable a random
+           DNS record type). */
+        OneTypePendingToAdd = 0;
+        if( sscanf(OneTypePendingToAdd_Str, "%d", &OneTypePendingToAdd) == 1 )
+        {
+            DisabledTypes->Add(DisabledTypes, &OneTypePendingToAdd);
+        } else {
+            ERRORMSG("Ignoring invalid DisabledType entry: %s\n",
+                     OneTypePendingToAdd_Str);
+        }
 
         OneTypePendingToAdd_Str = sli.Next(&sli);
     }

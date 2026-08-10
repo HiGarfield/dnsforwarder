@@ -1204,7 +1204,7 @@ static int DnsSimpleParserIterator_ParseRaw(DnsSimpleParserIterator *i,
 
     strcpy(Buffer, Format);
 
-    if( TypeName == DNS_TYPENAME_UNKNOWN )
+    if( TypeName == NULL || TypeName == DNS_TYPENAME_UNKNOWN )
     {
         sprintf(a, "UNKNOWN (%d)", (int)(i->Type & 0xffff));
         TypeName = (const char *)a;

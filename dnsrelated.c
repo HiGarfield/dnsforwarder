@@ -3,7 +3,7 @@
 
 /* http://en.wikipedia.org/wiki/List_of_DNS_record_types */
 const DNSTypeAndName DNSTypeList[] = {
-    {0,     NULL},
+    {0,     "UNKNOWN"},
     {1,     "IPv4 Address"},
     {2,     "Name Server"},
     {5,     "Canonical Name"},

@@ -710,6 +710,8 @@ int GetConfigDirectory(char *out)
     return 0;
 #else /* ANDROID */
     strcpy(out, "/system/root/.dnsforwarder");
+
+    return 0;
 #endif /* ANDROID */
 #endif /* _WIN32 */
 }

@@ -8,9 +8,16 @@
 #include "logs.h"
 #include "ptimer.h"
 
+#define GOODIPLIST_MAX_IPS_PER_LIST 64
+
 typedef struct _ListInfo{
     int     Interval;
     Array   List;
+    /* Backing store for List. Array_Init_Static only receives a data pointer,
+       so we keep the buffer inside the structure. When this ListInfo is copied
+       into the StringChunk, the copy keeps its own buffer and List.Data still
+       points inside the copy, so it never dangles. */
+    char    Buffer[GOODIPLIST_MAX_IPS_PER_LIST * sizeof(struct sockaddr_in)];
 } ListInfo;
 
 static StringChunk  *GoodIpList = NULL;
@@ -149,8 +156,16 @@ static int InitListsAndTimes(ConfigFileInfo *ConfigInfo)
 
     while( (Itr = sli.Next(&sli)) != NULL )
     {
-        ListInfo    m = {0, Array_Init_Static(sizeof(struct sockaddr_in))};
+        ListInfo    m;
         char n[128];
+
+        memset(&m, 0, sizeof(m));
+        /* Point the Array at the in-structure buffer (Array_Init_Static leaves
+           Data == NULL, which would crash Array_PushBack later). */
+        m.List.DataLength = sizeof(struct sockaddr_in);
+        m.List.Data = m.Buffer;
+        m.List.Allocated = GOODIPLIST_MAX_IPS_PER_LIST;
+        m.List.Used = 0;
 
         sscanf(Itr, "%127s%d", n, &(m.Interval));
 

@@ -15,6 +15,12 @@ int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart
     int LabelsLength = 0;
     BOOL Redirected = FALSE;
     int RedirectCount = 0;
+    /* Total wire length consumed by the encoded name, accumulated
+       independently of `Redirected'. This bound holds even when DNSBody
+       is NULL (e.g. the DNSJumpOverName helper), otherwise a name with
+       no terminating 0x00 could be scanned far past the end of the
+       message. RFC 1035 caps a domain name at 255 octets. */
+    int TotalNameBytes = 0;
     int LabelCount = GET_8_BIT_U_INT(NameItr); /* The amount of characters of the next label */
 
     /* A DNS name (all labels + length octets, excluding the final root
@@ -34,6 +40,11 @@ int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart
             {
                 LabelsLength += 2;
                 Redirected = TRUE;
+            }
+            TotalNameBytes += 2;
+            if( TotalNameBytes > 255 )
+            {
+                return -1;
             }
             /* A compression pointer needs two bytes, both of which must
                reside inside the message. These checks MUST run before the
@@ -108,6 +119,11 @@ int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart
             if( Redirected == FALSE )
             {
                 LabelsLength += (LabelCount + 1);
+            }
+            TotalNameBytes += (1 + LabelCount);
+            if( TotalNameBytes > 255 )
+            {
+                return -1;
             }
             NameItr += (1 + LabelCount);
             if( buffer != NULL )

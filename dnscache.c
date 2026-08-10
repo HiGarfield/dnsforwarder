@@ -62,7 +62,14 @@ static void DNSCacheTTLCountdown_Task(void *Unused, void *Unused2)
 
     const Array *ChunkList = &(CacheInfo->NodeChunk);
     int         loop = ChunkList->Used - 1;
-    Cht_Node    *Node = (Cht_Node *)Array_GetBySubscript(ChunkList, loop);
+    Cht_Node    *Node;
+
+    if( loop < 0 )
+    {
+        return;
+    }
+
+    Node = (Cht_Node *)Array_GetBySubscript(ChunkList, loop);
 
     time_t      CurrentTime = time(NULL);
 
@@ -89,7 +96,13 @@ static void DNSCacheTTLCountdown_Task(void *Unused, void *Unused2)
             }
         }
 
-        Node = (Cht_Node *)Array_GetBySubscript(ChunkList, --loop);
+        --loop;
+        if( loop < 0 )
+        {
+            Node = NULL;
+        } else {
+            Node = (Cht_Node *)Array_GetBySubscript(ChunkList, loop);
+        }
     }
 
     if(GotMutex == TRUE)

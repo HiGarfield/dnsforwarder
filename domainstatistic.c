@@ -48,6 +48,15 @@ static int GetPreAndPost(ConfigFileInfo *ConfigInfo)
         return -1;
     }
 
+    if( InsertionPosString == NULL )
+    {
+        /* `StatisticInsertionPosition' is required to locate where the
+           generated data is injected into the template. A missing value
+           would be passed as NULL to strstr/strlen below (undefined
+           behaviour). */
+        return -1;
+    }
+
     FileSize = GetFileSizePortable(TemplateFile);
     if( FileSize <= 0 )
     {

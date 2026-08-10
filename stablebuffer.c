@@ -205,12 +205,22 @@ static int32_t StableBufferIterator_CurrentBlockSize(StableBufferIterator *i)
 {
     const StableBuffer_MetaInfo   *m = StableBufferIterator_CurrentMeta(i);
 
+    if( m == NULL )
+    {
+        return 0;
+    }
+
     return m->Amount;
 }
 
 static int32_t StableBufferIterator_CurrentBlockUsed(StableBufferIterator *i)
 {
     const StableBuffer_MetaInfo   *m = StableBufferIterator_CurrentMeta(i);
+
+    if( m == NULL )
+    {
+        return 0;
+    }
 
     return m->Used;
 }

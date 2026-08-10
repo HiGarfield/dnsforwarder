@@ -1093,7 +1093,7 @@ static int DNSRRGetString(const char *Data,
         DataItr += 1 + n;
 
         BufferItr += n;
-        BufferLeft -= n + 1;
+        BufferLeft -= n;
     }
 
     if( BufferLeft <= 0 )

@@ -1030,13 +1030,23 @@ int ExpandPath(char *String, int BufferLength)
 #ifdef HAVE_WORDEXP
     wordexp_t Result;
 
+    /* `wordfree()` must not be called on a `wordexp_t` that `wordexp()`
+       did not fill in. */
     if( wordexp(String, &Result, 0) != 0 )
+    {
+        return -1;
+    }
+
+    /* An expansion may legitimately produce no word at all (for instance
+       when the path only consists of an undefined variable). Dereferencing
+       we_wordv[0] in that case reads a NULL pointer. */
+    if( Result.we_wordc < 1 || Result.we_wordv[0] == NULL )
     {
         wordfree(&Result);
         return -1;
     }
 
-    if( strlen(Result.we_wordv[0]) + 1 <= BufferLength )
+    if( (int)strlen(Result.we_wordv[0]) + 1 <= BufferLength )
     {
         strcpy(String, Result.we_wordv[0]);
     }

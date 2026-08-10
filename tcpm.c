@@ -935,7 +935,7 @@ int TcpM_Init(TcpM *m, const char *Services, BOOL Parallel, const char *SocksPro
 EXIT_9:
     m->ProxyPuller.FreeWithoutClose(&(m->ProxyPuller));
 EXIT_8:
-    SafeFree(*(m->SocksProxies));
+    SafeFree(m->SocksProxies);
 EXIT_7:
     AddressList_Free(&(m->SocksProxyList));
 
@@ -944,7 +944,7 @@ EXIT_6:
 EXIT_5:
     m->QueryPuller.FreeWithoutClose(&(m->QueryPuller));
 EXIT_4:
-    SafeFree(*(m->Services));
+    SafeFree(m->Services);
 
 EXIT_3:
     AddressList_Free(&(m->ServiceList));

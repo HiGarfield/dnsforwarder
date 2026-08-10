@@ -152,9 +152,9 @@ static int StringList_AppendLast(StringList *s,
 }
 
 /* free the return value and all the strings */
-static const char **StringList_ToCharPtrArray(StringList *s)
+static char **StringList_ToCharPtrArray(StringList *s)
 {
-    const char  **ret;
+    char        **ret;
     int         Index = 0;
 
     StringListIterator    i;

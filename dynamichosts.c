@@ -20,7 +20,7 @@ static volatile HostsContainer  *MainDynamicContainer = NULL;
 /* Arguments for updating  */
 static int          HostsRetryInterval;
 static char         Script[SIZE_OF_PATH_BUFFER] = "";
-static const char   **HostsURLs = NULL; /* malloced */
+static char         **HostsURLs = NULL; /* malloced */
 
 static void DynamicHosts_ContainerCleanup(HostsContainer *DynamicContainer)
 {
@@ -35,7 +35,7 @@ static void DynamicHosts_Cleanup(void)
 {
     DynamicHosts_ContainerCleanup((HostsContainer *)MainDynamicContainer);
     MainDynamicContainer = NULL;
-    FreeCharPtrArray((char **)HostsURLs);
+    FreeCharPtrArray(HostsURLs);
     HostsURLs = NULL;
     RWLock_Destroy(HostsLock);
 }
@@ -135,7 +135,7 @@ static void GetHostsFromInternet_Thread(void *Unused1, void *Unused2)
         INFO("Getting hosts from various places ...\n");
     }
 
-    DownloadState = GetFromInternet_MultiFiles(HostsURLs,
+    DownloadState = GetFromInternet_MultiFiles((const char **)HostsURLs,
                                                File,
                                                HostsRetryInterval,
                                                -1,
@@ -201,7 +201,7 @@ int DynamicHosts_Init(ConfigFileInfo *ConfigInfo)
         if( ExpandPathTo(Script, SIZE_OF_PATH_BUFFER, RawScript) != 0 )
         {
             ERRORMSG("Failed to expand path: %s.\n", RawScript);
-            FreeCharPtrArray((char **)HostsURLs);
+            FreeCharPtrArray(HostsURLs);
             HostsURLs = NULL;
             return -170;
         }

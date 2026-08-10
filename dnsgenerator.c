@@ -576,6 +576,14 @@ static int DnsGenerator_RawData(DnsGenerator *g,
         return -5;
     }
 
+    /* All sibling writers (CopyA/CopyAAAA/CopyCName/NamePart) check the
+       remaining buffer first; this one was missing the guard and could
+       write past the end of g->Buffer. */
+    if( LEFT_LENGTH(g) < DataLength )
+    {
+        return -6;
+    }
+
     memcpy(g->Itr, Data, DataLength);
     g->Itr += DataLength;
 

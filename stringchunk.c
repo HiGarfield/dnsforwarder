@@ -61,9 +61,11 @@ EXIT_4:
 EXIT_3:
     dl->AdditionalDataChunk.Free(&(dl->AdditionalDataChunk));
 EXIT_2:
-    SimpleHT_Free(&(dl->List_Pos));
-EXIT_1:
+    /* List_W_Pos was successfully initialised before StableBuffer_Init. */
     Array_Free(&(dl->List_W_Pos));
+EXIT_1:
+    /* List_Pos was successfully initialised first (before List_W_Pos). */
+    SimpleHT_Free(&(dl->List_Pos));
     return ret;
 }
 

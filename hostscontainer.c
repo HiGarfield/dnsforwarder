@@ -213,6 +213,26 @@ OUT_SEARCH:
                                                       );
             }
 
+            /* `ipAddr` now lives inside TableIPAddr, but IpAddr_Parse points
+               `Zone` at the caller's string (e.g. a stack buffer in
+               HostsContainer_Load). Copy that Zone string into the persistent
+               Container->Table and rebind the pointer, otherwise the stored
+               IpAddr keeps a dangling pointer. Sentinel Zones (Z0/Z4/Z6noz)
+               are compile-time constants and need no copy. */
+            if( ipAddr != NULL && IpAddr_HasZone((const IpAddr *)ipAddr) )
+            {
+                const char *z = Container->Table.Add(&(Container->Table),
+                                                      ((const IpAddr *)ipAddr)->Zone,
+                                                      strlen(((const IpAddr *)ipAddr)->Zone) + 1,
+                                                      TRUE
+                                                      );
+                if( z == NULL )
+                {
+                    return -172;
+                }
+                ((IpAddr *)ipAddr)->Zone = z;
+            }
+
             n.Data = ipAddr;
         } else {
             n.Data = Container->Table.Add(&(Container->Table),

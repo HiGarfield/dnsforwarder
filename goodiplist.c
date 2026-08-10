@@ -190,10 +190,19 @@ static int AddToLists(ConfigFileInfo *ConfigInfo)
     {
         ListInfo    *m = NULL;
         char n[128], ip_str[LENGTH_OF_IPV4_ADDRESS_ASCII];
-        int Port;
+        int Port = 0;
         struct sockaddr_in  ip;
 
-        sscanf(Itr, "%127s%*[^0123456789]%15[^:]:%d", n, ip_str, &Port);
+        memset(&ip, 0, sizeof(ip));
+
+        /* Validate the format. A missing ":port" leaves Port uninitialized
+         * and an unchecked sscanf does not zero it, yielding a random port. */
+        if( sscanf(Itr, "%127s%*[^0123456789]%15[^:]:%d", n, ip_str, &Port) < 3 )
+        {
+            ERRORMSG("Invalid GoodIPListAddIP (expected 'list ip:port'): %s\n", Itr);
+            continue;
+        }
+
         ip.sin_port = htons(Port);
         ip.sin_family = AF_INET; /* IPv4 only */
 

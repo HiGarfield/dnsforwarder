@@ -65,15 +65,10 @@ int ConfigAddOption(ConfigFileInfo *Info,
         case TYPE_STRING:
             if( StringList_Init(&(New.Holder.str), Initial.str, ",") != 0 )
             {
-                return 2;
+                return -2;
             }
 
             New.Delimiters = ",";
-            if( New.Delimiters == NULL )
-            {
-                return -68;
-            }
-
             break;
 
         default:

@@ -17,6 +17,7 @@ typedef struct _Cht_Slot{
 static int CacheHT_CalculateSlotCount(int CacheSize)
 {
     int PreValue;
+    int Result;
     if( CacheSize < 1048576 )
     {
         PreValue = CacheSize / 4979 - 18;
@@ -24,7 +25,19 @@ static int CacheHT_CalculateSlotCount(int CacheSize)
         PreValue = pow(log((double)CacheSize), 2);
     }
 
-    return ROUND(PreValue, 10) + 7;
+    /* Clamp negative pre-values (happens when CacheSize is small, e.g.
+       below ~87 KB) to zero so we never return a negative or zero slot
+       count. A negative/zero Used crashes CacheHT_Init (out-of-bounds
+       Slots.Data, the `loop != Allocated` init loop never terminates or
+       dereferences NULL) and later causes a modulo-by-zero in
+       CacheHT_InsertToSlot / CacheHT_Get. */
+    if( PreValue < 0 )
+    {
+        PreValue = 0;
+    }
+
+    Result = ROUND(PreValue, 10) + 7;
+    return Result < 7 ? 7 : Result;
 }
 
 int CacheHT_Init(CacheHT *h, char *BaseAddr, int CacheSize)
@@ -36,7 +49,7 @@ int CacheHT_Init(CacheHT *h, char *BaseAddr, int CacheSize)
     h->Slots.Data = BaseAddr + CacheSize - (h->Slots.DataLength) * (h->Slots.Used);
     h->Slots.Allocated = h->Slots.Used;
 
-    for(loop = 0; loop != h->Slots.Allocated; ++loop)
+    for(loop = 0; loop < h->Slots.Allocated; ++loop)
     {
         ((Cht_Slot *)Array_GetBySubscript(&(h->Slots), loop))->Next = -1;
     }

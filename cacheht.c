@@ -416,6 +416,14 @@ Cht_Node *CacheHT_Get(CacheHT *h, const char *Key, const Cht_Node *Start, const 
 
         Slot = (Cht_Slot *)Array_GetBySubscript(&(h->Slots), Slot_i);
 
+        if( Slot->Next < 0 )
+        {
+            /* Empty slot: no node chains off it. Array_GetBySubscript with a
+               negative subscript would hand back an out-of-bounds pointer
+               (not NULL), so bail out before dereferencing it. */
+            return NULL;
+        }
+
         Node = (Cht_Node *)Array_GetBySubscript(&(h->NodeChunk), Slot->Next);
         if( Node == NULL )
             return NULL;

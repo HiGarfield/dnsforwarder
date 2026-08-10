@@ -466,7 +466,7 @@ int IPv6AddressToNum(const char *asc, void *Buffer)
 
     if( strstr(asc, "::") == NULL )
     {   /* full format */
-        uint32_t a[8];
+        uint32_t a[8] = {0};
         sscanf(asc, "%x:%x:%x:%x:%x:%x:%x:%x",
                 a, a + 1, a + 2, a + 3, a + 4, a + 5, a + 6, a + 7
                 );
@@ -683,8 +683,13 @@ int GetConfigDirectory(char *out)
 #else /* _WIN32 */
 #ifndef ANDROID
     struct passwd *pw = getpwuid(getuid());
-    char *home = pw->pw_dir;
+    char *home;
     *out = '\0';
+    if( pw == NULL )
+    {
+        return 1;
+    }
+    home = pw->pw_dir;
     if( home == NULL )
         return 1;
 
@@ -853,7 +858,7 @@ char *BinaryOutput(const char *Origin, int OriginLength, char *Buffer)
     }
 
     *Buffer = '\0';
-    return Buffer + 1;
+    return Buffer;
 }
 
 char *StringDup(const char *Str)

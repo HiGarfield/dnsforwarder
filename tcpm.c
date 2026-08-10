@@ -628,6 +628,15 @@ TcpM_Works(TcpM *m)
             uint16_t TotalLength;
             SocketPuller *p2;
             char *PartialData;
+            TcpContext Ctx;
+
+            /* `TcpCtx` points at the payload of a BST node owned by the
+               puller `p`. `p->Del` below returns that node to `p`'s free
+               list, where a later `Add` (e.g. inside TcpM_Send_Actual or
+               the re-add at the end of this branch) may reuse and overwrite
+               it. Copy the context by value before deleting so every later
+               access reads a stable snapshot instead of freed/reused memory. */
+            Ctx = *TcpCtx;
 
             p->Del(p, s);
 
@@ -637,14 +646,14 @@ TcpM_Works(TcpM *m)
                 if( State < 1 )
                 {
                     /* If Server force closed the keep-alive SOCKET: */
-                    IHeader *Header2 = (IHeader *)TcpCtx->MsgCtx;
-                    if( TcpCtx->Queried > 1 && Header2 != NULL && *(Header2->Domain) != 0 &&
-                        TcpCtx->MsgCtxQid == DNSGetQueryIdentifier(Header2 + 1) &&
-                        TcpCtx->MsgCtxHash == Header2->HashValue
+                    IHeader *Header2 = (IHeader *)Ctx.MsgCtx;
+                    if( Ctx.Queried > 1 && Header2 != NULL && *(Header2->Domain) != 0 &&
+                        Ctx.MsgCtxQid == DNSGetQueryIdentifier(Header2 + 1) &&
+                        Ctx.MsgCtxHash == Header2->HashValue
                         )
                     {
                         INFO("TCP retrying for %s ...\n", Header2->Domain);
-                        TcpM_Send_Actual(m, TcpCtx->MsgCtx, TcpCtx->ServerIndex);
+                        TcpM_Send_Actual(m, Ctx.MsgCtx, Ctx.ServerIndex);
                     }
                 } else if( State == 1 )
                 {
@@ -690,10 +699,16 @@ TcpM_Works(TcpM *m)
                 continue;
             }
 
-            p2 = m->Agents[TcpCtx->ServerIndex];
-            TcpCtx->LastActivity = time(NULL);
-            TcpCtx->MsgCtx = NULL;
-            p2->Add(p2, s, TcpCtx, sizeof(TcpContext));
+            if( Ctx.ServerIndex < 0 ||
+                Ctx.ServerIndex >= AddressList_GetNumberOfAddresses(&(m->ServiceList)) )
+            {
+                CLOSE_SOCKET(s);
+                continue;
+            }
+            p2 = m->Agents[Ctx.ServerIndex];
+            Ctx.LastActivity = time(NULL);
+            Ctx.MsgCtx = NULL;
+            p2->Add(p2, s, &Ctx, sizeof(TcpContext));
 
             IHeader_Fill(Header,
                          FALSE,

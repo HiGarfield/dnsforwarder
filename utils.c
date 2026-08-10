@@ -531,10 +531,24 @@ int IPv4AddressToNum(const char *asc, void *Buffer)
     memset(Components, 0, sizeof(Components));
 
     ret = sscanf(asc, "%d.%d.%d.%d", Components, Components + 1, Components + 2, Components + 3);
-    BufferInByte[0] = Components[0];
-    BufferInByte[1] = Components[1];
-    BufferInByte[2] = Components[2];
-    BufferInByte[3] = Components[3];
+    /* Reject anything that is not exactly four decimal components, and
+       reject components that do not fit in a single byte. Previously the
+       four bytes were written unconditionally, so an input like "1.2.3"
+       leaked uninitialised stack data and "999.999.999.999" was silently
+       truncated into a wrong address. */
+    if( ret != 4 ||
+        Components[0] < 0 || Components[0] > 255 ||
+        Components[1] < 0 || Components[1] > 255 ||
+        Components[2] < 0 || Components[2] > 255 ||
+        Components[3] < 0 || Components[3] > 255
+        )
+    {
+        return -1;
+    }
+    BufferInByte[0] = (unsigned char)Components[0];
+    BufferInByte[1] = (unsigned char)Components[1];
+    BufferInByte[2] = (unsigned char)Components[2];
+    BufferInByte[3] = (unsigned char)Components[3];
 
     return ret;
 }

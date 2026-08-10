@@ -871,6 +871,7 @@ static int DnsSimpleParserIterator_ParseIPv6(DnsSimpleParserIterator *i,
         return -1;
     }
 
+    *DataLength -= 16;
     return strlen(Buffer);
 }
 

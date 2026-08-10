@@ -710,15 +710,27 @@ TcpM_Works(TcpM *m)
             Ctx.MsgCtx = NULL;
             p2->Add(p2, s, &Ctx, sizeof(TcpContext));
 
-            IHeader_Fill(Header,
-                         FALSE,
-                         Entity,
-                         TotalLength,
-                         NULL,
-                         INVALID_SOCKET,
-                         AF_UNSPEC,
-                         NULL
-                         );
+            /* `ReceiveBuffer` lives on the stack and is reused by every
+               iteration. When `IHeader_Fill` fails it returns before
+               refreshing `Domain`, `HashValue` and `EntityLength`, so
+               continuing here would match the malformed answer against the
+               previous request and send it to that requester. */
+            memset(Header, 0, sizeof(IHeader));
+            if( IHeader_Fill(Header,
+                             FALSE,
+                             Entity,
+                             TotalLength,
+                             NULL,
+                             INVALID_SOCKET,
+                             AF_UNSPEC,
+                             NULL
+                             )
+                != 0 )
+            {
+                WARNING("TCP %s returned a malformed message, discarded.\n",
+                        m->SocksProxies != NULL ? "proxy" : "server");
+                continue;
+            }
 
             switch( IPMiscMapping_Process(MsgCtx) )
             {

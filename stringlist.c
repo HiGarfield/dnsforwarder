@@ -186,11 +186,21 @@ static const char **StringList_ToCharPtrArray(StringList *s)
 
 void FreeCharPtrArray(char **s)
 {
-    while( *s != NULL )
+    char **p;
+
+    if( s == NULL )
     {
-        SafeFree(*s);
-        ++s;
+        return;
     }
+
+    p = s;
+    while( *p != NULL )
+    {
+        SafeFree(*p);
+        ++p;
+    }
+    /* Free the array itself (allocated by StringList_ToCharPtrArray). */
+    SafeFree(s);
 }
 
 /* Unsafe operation, it may change strings' positions */

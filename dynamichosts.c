@@ -34,7 +34,9 @@ static void DynamicHosts_ContainerCleanup(HostsContainer *DynamicContainer)
 static void DynamicHosts_Cleanup(void)
 {
     DynamicHosts_ContainerCleanup((HostsContainer *)MainDynamicContainer);
+    MainDynamicContainer = NULL;
     FreeCharPtrArray((char **)HostsURLs);
+    HostsURLs = NULL;
     RWLock_Destroy(HostsLock);
 }
 
@@ -120,6 +122,12 @@ static void GetHostsFromInternet_Thread(void *Unused1, void *Unused2)
 #if !defined(TEST_RELOADING)
     int         DownloadState;
 
+    if( HostsURLs == NULL || HostsURLs[0] == NULL )
+    {
+        ERRORMSG("Hosts URLs list is not available.\n");
+        return;
+    }
+
     if( HostsURLs[1] == NULL )
     {
         INFO("Getting hosts from %s ...\n", HostsURLs[0]);
@@ -178,10 +186,14 @@ int DynamicHosts_Init(ConfigFileInfo *ConfigInfo)
     Hosts->TrimAll(Hosts, "\"\t ");
 
     HostsURLs = Hosts->ToCharPtrArray(Hosts);
+    if( HostsURLs == NULL )
+    {
+        ERRORMSG("Failed to build Hosts URLs list.\n");
+        return -152;
+    }
+
     UpdateInterval = ConfigGetInt32(ConfigInfo, "ModulesUpdateInterval");
     HostsRetryInterval = ConfigGetInt32(ConfigInfo, "HostsRetryInterval");
-
-    atexit(DynamicHosts_Cleanup);
 
     RawScript = ConfigGetRawString(ConfigInfo, "HostsScript");
     if( RawScript != NULL )
@@ -189,6 +201,8 @@ int DynamicHosts_Init(ConfigFileInfo *ConfigInfo)
         if( ExpandPathTo(Script, SIZE_OF_PATH_BUFFER, RawScript) != 0 )
         {
             ERRORMSG("Failed to expand path: %s.\n", RawScript);
+            FreeCharPtrArray((char **)HostsURLs);
+            HostsURLs = NULL;
             return -170;
         }
     } else {
@@ -196,6 +210,11 @@ int DynamicHosts_Init(ConfigFileInfo *ConfigInfo)
     }
 
     RWLock_Init(HostsLock);
+
+    /* Register cleanup only after every resource has been successfully
+       initialised, so the atexit handler never touches a half-initialised
+       or NULL state. */
+    atexit(DynamicHosts_Cleanup);
 
     File = ConfigGetRawString(ConfigInfo, "HostsDownloadPath");
 

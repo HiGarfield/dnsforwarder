@@ -72,7 +72,10 @@ int CacheTtlCrtl_Add_From_String(CacheTtlCtrl *c, const char *Rule)
     } else if( IS_STATE("vari") )
     {
         State = TTL_STATE_VARIABLE;
-        if( sscanf(Arg, "%u%*[xX]%*[+]%u", &Coefficient, &Increment) != 2 )
+        /* Skip any non-digit separators (x, X, +, whitespace, ...) between the
+           coefficient and the increment, so both `3600x100' and `3600+100'
+           parse instead of only the rigid `3600x+100' form. */
+        if( sscanf(Arg, "%u%*[^0-9]%u", &Coefficient, &Increment) != 2 )
         {
             ERRORMSG("Invalid `CacheControl' variable arg : %s\n", Rule);
             return -1;

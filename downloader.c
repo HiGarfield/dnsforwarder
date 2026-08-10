@@ -301,8 +301,32 @@ Exit_1:
 #       endif /* DOWNLOAD_LIBCURL */
 #       ifdef DOWNLOAD_WGET
     char Cmd[2048];
+    int Written;
 
-    sprintf(Cmd, "wget -t 2 -T 60 -q --no-check-certificate %s -O %s ", URL, File);
+    /* `Cmd` is handed to a shell by `Execute()`. Quote both arguments and
+       reject the ones that could escape the quoting, otherwise a crafted
+       URL turns into arbitrary shell commands. `sprintf()` also used to
+       overflow `Cmd` for long URLs or paths. */
+    if( strchr(URL, '\'') != NULL || strchr(File, '\'') != NULL )
+    {
+        ERRORMSG("Refusing to fetch %s: a quotation mark is not allowed in "
+                 "a URL or in a destination path.\n",
+                 URL);
+        return -1;
+    }
+
+    Written = snprintf(Cmd,
+                       sizeof(Cmd),
+                       "wget -t 2 -T 60 -q --no-check-certificate '%s' -O '%s'",
+                       URL,
+                       File
+                       );
+    if( Written < 0 || Written >= (int)sizeof(Cmd) )
+    {
+        ERRORMSG("Refusing to fetch %s: the resulting command is too long.\n",
+                 URL);
+        return -1;
+    }
 
     return Execute(Cmd);
 #       endif /* DOWNLOAD_WGET */

@@ -568,6 +568,7 @@ void ConfigSetDefaultValue(ConfigFileInfo *Info, VType Value, const char *KeyNam
                 Option->Holder.boolean = Value.boolean;
                 break;
 
+            case TYPE_PATH:
             case TYPE_STRING:
                 Option->Holder.str.Clear(&(Option->Holder.str));
                 Option->Holder.str.Add(&(Option->Holder.str),

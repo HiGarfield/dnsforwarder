@@ -493,6 +493,18 @@ static char *DnsSimpleParserIterator_Next(DnsSimpleParserIterator *i)
         if( i->Purpose != DNS_RECORD_PURPOSE_QUESTION )
         {
             i->DataLength = DNSGetResourceDataLength(i->CurrentPosition);
+
+            /* The RDATA must stay inside the message. A lying RDLENGTH
+               would otherwise let subsequent parsers read past the end
+               of the packet. */
+            const char *RDataPos = DNSGetResourceDataPos(i->CurrentPosition);
+            if( RDataPos == NULL ||
+                RDataPos + i->DataLength > i->Parser->RawDns + i->Parser->RawDnsLength )
+            {
+                i->CurrentPosition = NULL;
+                i->RecordPosition = 0;
+                return NULL;
+            }
         }
 
         return i->CurrentPosition;
@@ -1068,7 +1080,10 @@ static int DNSRRGetString(const char *Data,
     {
         int n = GET_8_BIT_U_INT(DataItr);
 
-        if( n >= BufferLeft )
+        /* The length byte itself must fit, and the payload must not
+           overflow either the destination buffer or the source RDATA. */
+        if( n + 1 > BufferLeft ||
+            DataItr + 1 + n > Data + DataLength )
         {
             return -1;
         }
@@ -1078,7 +1093,12 @@ static int DNSRRGetString(const char *Data,
         DataItr += 1 + n;
 
         BufferItr += n;
-        BufferLeft -= n;
+        BufferLeft -= n + 1;
+    }
+
+    if( BufferLeft <= 0 )
+    {
+        return -1;
     }
     *BufferItr = '\0';
 
@@ -1116,14 +1136,20 @@ static int DnsSimpleParserIterator_ParseTxt(DnsSimpleParserIterator *i,
         return -1;
     }
 
-    if( i->DataLength > sizeof(Example) )
+    if( i->DataLength >= (int)sizeof(Example) )
     {
-        Resulting = SafeMalloc(i->DataLength);
+        Resulting = SafeMalloc((size_t)i->DataLength + 1);
     } else {
         Resulting = Example;
     }
 
-    if( DNSRRGetString(Data, i->DataLength, Resulting, i->DataLength) < 0 )
+    if( Resulting == NULL )
+    {
+        *Buffer = '\0';
+        return -1;
+    }
+
+    if( DNSRRGetString(Data, i->DataLength, Resulting, (int)sizeof(Example)) < 0 )
     {
         *Buffer = '\0';
         goto EXIT;

@@ -434,7 +434,14 @@ Cht_Node *CacheHT_Get(CacheHT *h, const char *Key, const Cht_Node *Start, const 
 
 void CacheHT_Free(CacheHT *h)
 {
-    Array_Free(&(h->NodeChunk));
-    Array_Free(&(h->Slots));
+    /* The NodeChunk and Slots arrays do not own their backing memory: their
+       `Data` pointers are offsets inside the single `BaseAddr` block that the
+       caller (DNSCache) allocates and frees as a whole. Calling Array_Free
+       here would SafeFree() an interior pointer of that block, corrupting the
+       heap. Only reset the bookkeeping; the caller frees BaseAddr itself. */
+    h->NodeChunk.Data = NULL;
+    h->NodeChunk.Used = 0;
+    h->Slots.Data = NULL;
+    h->Slots.Used = 0;
     h->Free2DList = -1;
 }

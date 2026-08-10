@@ -46,7 +46,7 @@ int ConfigAddOption(ConfigFileInfo *Info,
                     VType Initial
                     )
 {
-    ConfigOption New;
+    ConfigOption New = {0};
 
     New.Type = Type;
     New.Status = STATUS_DEFAULT_VALUE;
@@ -86,7 +86,7 @@ int ConfigAddAlias(ConfigFileInfo *Info,
                    const char *StringDelimiters
                    )
 {
-    ConfigOption New;
+    ConfigOption New = {0};
 
     New.Type = TYPE_ALIAS;
 

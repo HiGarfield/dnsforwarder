@@ -108,7 +108,14 @@ static int DomainStatistic_Works(void *Unused, void *Unused2)
         return 0;
     }
 
-    rewind(MainFile);
+    /* Use fseek instead of rewind: rewind does not report failure, so the
+       analyzer cannot tell whether errno was consumed; fseek lets us check
+       the result explicitly. This also avoids memset() clobbering an
+       unchecked errno left by rewind(). */
+    if( fseek(MainFile, 0L, SEEK_SET) != 0 )
+    {
+        return -1;
+    }
 
     memset(&Sum, 0, sizeof(DomainInfo));
 

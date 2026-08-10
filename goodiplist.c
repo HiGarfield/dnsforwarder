@@ -13,10 +13,11 @@
 typedef struct _ListInfo{
     int     Interval;
     Array   List;
-    /* Backing store for List. Array_Init_Static only receives a data pointer,
-       so we keep the buffer inside the structure. When this ListInfo is copied
-       into the StringChunk, the copy keeps its own buffer and List.Data still
-       points inside the copy, so it never dangles. */
+    /* Backing store for List. The buffer is heap-allocated (see
+       InitListsAndTimes) so that when this ListInfo is byte-copied into the
+       StringChunk, List.Data keeps pointing at valid memory instead of the
+       (now out-of-scope) stack buffer it was built on. A plain in-struct
+       buffer would leave a dangling pointer after the copy. */
     char    Buffer[GOODIPLIST_MAX_IPS_PER_LIST * sizeof(struct sockaddr_in)];
 } ListInfo;
 
@@ -160,10 +161,19 @@ static int InitListsAndTimes(ConfigFileInfo *ConfigInfo)
         char n[128];
 
         memset(&m, 0, sizeof(m));
-        /* Point the Array at the in-structure buffer (Array_Init_Static leaves
-           Data == NULL, which would crash Array_PushBack later). */
+        /* Point the Array at a heap buffer (NOT the in-structure Buffer). The
+           whole ListInfo is byte-copied into the StringChunk, and memcpy does
+           not relocate internal pointers: had we used m.Buffer (stack memory),
+           the copy's List.Data would keep pointing at the soon-to-be-freed
+           stack slot, turning every later GoodIpList_Get into a use-after-scope
+           read. A heap pointer stays valid for the whole process lifetime. */
         m.List.DataLength = sizeof(struct sockaddr_in);
-        m.List.Data = m.Buffer;
+        m.List.Data = SafeMalloc(GOODIPLIST_MAX_IPS_PER_LIST * sizeof(struct sockaddr_in));
+        if( m.List.Data == NULL )
+        {
+            ERRORMSG("GoodIpList out of memory : %s\n", Itr);
+            continue;
+        }
         m.List.Allocated = GOODIPLIST_MAX_IPS_PER_LIST;
         m.List.Used = 0;
 
@@ -237,6 +247,11 @@ static int AddToLists(ConfigFileInfo *ConfigInfo)
             continue;
         }
 
+        if( Array_GetUsed(&(m->List)) >= GOODIPLIST_MAX_IPS_PER_LIST )
+        {
+            ERRORMSG("GoodIpList `%s' is full, ignoring `%s'\n", n, Itr);
+            continue;
+        }
         Array_PushBack(&(m->List), &ip, NULL);
     }
 

@@ -741,9 +741,17 @@ ModulesFree:
 
 static void Modules_Cleanup(void)
 {
+    /* Do NOT call Modules_Free() directly: the module instances (e.g.
+       UdpM_Instance) hold the working threads' state and the spin lock those
+       threads keep using. Freeing them while UdpM_Works / UdpM_Sweep_Thread
+       are still spinning overwrites their memory and is a use-after-free
+       (valgrind reports invalid reads/writes on the freed 1552-byte block and
+       a spin_lock on a destroyed lock). Modules_SafeCleanup first clears
+       IsServer so every worker thread exits and nulls its handle, then takes
+       ModulesLock to drain any in-flight MMgr_Send, and only then frees. */
     if( CurModuleMap != NULL )
     {
-        Modules_Free(CurModuleMap);
+        Modules_SafeCleanup(CurModuleMap);
     }
     RWLock_Destroy(ModulesLock);
 }

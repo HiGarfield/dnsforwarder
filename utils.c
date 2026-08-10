@@ -489,7 +489,7 @@ int IPv6AddressToNum(const char *asc, void *Buffer)
 
         while(1)
         {
-            uint32_t a;
+            uint32_t a = 0;
             itr = asc;
             asc = strchr(asc, ':');
             if( asc == NULL )
@@ -516,7 +516,7 @@ int IPv6AddressToNum(const char *asc, void *Buffer)
         for(; *asc != '\0'; ++asc);
         while(1)
         {
-            uint32_t a;
+            uint32_t a = 0;
             /* Scan backwards for the previous ':' but never walk before the
                start of the input; otherwise we read out of bounds. */
             for(itr = asc; itr > head && *itr != ':'; --itr);

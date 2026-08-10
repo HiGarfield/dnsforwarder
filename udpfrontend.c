@@ -88,15 +88,27 @@ UdpFrontend_Work(void *Unused)
                              );
         }
 
-        IHeader_Fill(Header,
-                     FALSE,
-                     Entity,
-                     RecvState,
-                     IncomingAddress,
-                     sock,
-                     *f,
-                     Agent
-                     );
+        /* `IHeader_Fill` bails out before storing `SendBackSocket`,
+           `BackAddress` and `EntityLength` when the datagram is malformed
+           (too short, non-IN question, ...). `ReceiveBuffer` is reused for
+           every client, so forwarding the context anyway would make the
+           daemon answer the *previous* client with stale data. */
+        if( IHeader_Fill(Header,
+                         FALSE,
+                         Entity,
+                         RecvState,
+                         IncomingAddress,
+                         sock,
+                         *f,
+                         Agent
+                         )
+            != 0 )
+        {
+            INFO("Malformed message received from UDP client %s, discarded.\n",
+                 Agent
+                 );
+            continue;
+        }
 
         MMgr_Send(ReceiveBuffer, SOCKET_CONTEXT_LENGTH);
     }

@@ -91,15 +91,34 @@ TcpFrontend_Work(void *Unused)
                 RecvState = recv(sock_c, Entity, TCPLength, 0);
                 if( RecvState == TCPLength )
                 {
-                    IHeader_Fill(Header,
-                                 FALSE,
-                                 Entity,
-                                 RecvState,
-                                 NULL,
-                                 sock_c,
-                                 ClientAddr->family,
-                                 Agent
-                                 );
+                    /* `IHeader_Fill` returns before filling in
+                       `SendBackSocket` and `EntityLength` when the message
+                       is malformed. Since `ReceiveBuffer` is shared by all
+                       clients, sending such a context on would reply to the
+                       previously served client with stale data. */
+                    if( IHeader_Fill(Header,
+                                     FALSE,
+                                     Entity,
+                                     RecvState,
+                                     NULL,
+                                     sock_c,
+                                     ClientAddr->family,
+                                     Agent
+                                     )
+                        != 0 )
+                    {
+                        INFO("Malformed message received from TCP client %s.\n",
+                             Agent
+                             );
+                        CLOSE_SOCKET(sock_c);
+
+                        if( IsNewConnected == FALSE )
+                        {
+                            Frontend.Del(&Frontend, sock_c);
+                        }
+
+                        continue;
+                    }
 
                     MMgr_Send(ReceiveBuffer, SOCKET_CONTEXT_LENGTH);
 

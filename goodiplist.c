@@ -7,6 +7,7 @@
 #include "socketpuller.h"
 #include "logs.h"
 #include "ptimer.h"
+#include "rwlock.h"
 
 #define GOODIPLIST_MAX_IPS_PER_LIST 64
 
@@ -22,6 +23,14 @@ typedef struct _ListInfo{
 } ListInfo;
 
 static StringChunk  *GoodIpList = NULL;
+
+/* Guards concurrent access to every ListInfo.List array. The list-measurement
+   task (ThreadJod, run on the TimedTask thread) rewrites inf->List while a
+   request-handling thread may call GoodIpList_Get() to read the same list.
+   Without this lock the two threads race on the array contents (data race,
+   detectable by helgrind). A single module-level lock is fine: the number of
+   good-IP lists is small and access is read-mostly. */
+static RWLock   ListLock;
 
 /* The fastest returned */
 static struct sockaddr_in *CheckAList(struct sockaddr_in *Ips, int Count)
@@ -88,11 +97,16 @@ static int ThreadJod(const char *Domain, ListInfo *inf)
 {
     struct sockaddr_in *Fastest;
     PTimer  tm;
+    int     Ret = 0;
 
     if( inf == NULL )
     {
         return -159;
     }
+
+    /* Serialize with GoodIpList_Get() which may read inf->List concurrently
+       from a request-handling thread. */
+    RWLock_WrLock(ListLock);
 
     PTimer_Start(&tm);
     Fastest = CheckAList((struct sockaddr_in *)Array_GetRawArray(&(inf->List)),
@@ -113,7 +127,8 @@ static int ThreadJod(const char *Domain, ListInfo *inf)
         First = Array_GetBySubscript(&(inf->List), 0);
         if( First == NULL )
         {
-            return -178;
+            Ret = -178;
+            goto FINISH;
         }
 
         memcpy(&t, Fastest, sizeof(struct sockaddr_in));
@@ -123,7 +138,11 @@ static int ThreadJod(const char *Domain, ListInfo *inf)
         INFO("Checking list `%s' timeout.\n", Domain);
     }
 
-    return 0;
+    Ret = 0;
+
+FINISH:
+    RWLock_UnWLock(ListLock);
+    return Ret;
 }
 
 /* GoodIPList list1 1000 */
@@ -292,6 +311,7 @@ static void GoodIpList_Cleanup(void)
 {
     if(GoodIpList != NULL)
     {
+        RWLock_Destroy(ListLock);
         StringChunk_Free(GoodIpList, TRUE);
         SafeFree(GoodIpList);
     }
@@ -299,16 +319,26 @@ static void GoodIpList_Cleanup(void)
 
 int GoodIpList_Init(ConfigFileInfo *ConfigInfo)
 {
+    RWLock_Init(ListLock);
+    atexit(GoodIpList_Cleanup);
+
+    /* The list-measurement task (ThreadJod) is started by AddTask() below and
+       may begin running (it reads each ListInfo.List) before this function
+       returns. Initialise the lists under the same write lock that ThreadJod
+       takes, so its first read cannot race with these writes. */
+    RWLock_WrLock(ListLock);
     if( InitListsAndTimes(ConfigInfo) != 0 )
     {
+        RWLock_UnWLock(ListLock);
         return -1;
     }
-    atexit(GoodIpList_Cleanup);
 
     if( AddToLists(ConfigInfo) != 0 )
     {
+        RWLock_UnWLock(ListLock);
         return -2;
     }
+    RWLock_UnWLock(ListLock);
 
     AddTask();
 
@@ -318,6 +348,9 @@ int GoodIpList_Init(ConfigFileInfo *ConfigInfo)
 const char *GoodIpList_Get(const char *List)
 {
     ListInfo   *m = NULL;
+    const char *Ret = NULL;
+
+    RWLock_RdLock(ListLock);
     if( StringChunk_Match_NoWildCard(GoodIpList,
                                      List,
                                      NULL,
@@ -331,11 +364,14 @@ const char *GoodIpList_Get(const char *List)
     {
         if( Array_GetUsed(&(m->List)) <= 0 )
         {
-            return NULL;
+            Ret = NULL;
         } else {
-            return (const char *)&(((const struct sockaddr_in *)Array_GetBySubscript(&(m->List), 0))->sin_addr);
+            Ret = (const char *)&(((const struct sockaddr_in *)Array_GetBySubscript(&(m->List), 0))->sin_addr);
         }
     } else {
-        return NULL;
+        Ret = NULL;
     }
+    RWLock_UnRLock(ListLock);
+
+    return Ret;
 }

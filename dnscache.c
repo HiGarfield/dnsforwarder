@@ -58,7 +58,12 @@ struct _Header{
 
 static void DNSCacheTTLCountdown_Task(void *Unused, void *Unused2)
 {
-    BOOL        GotMutex = FALSE;
+    /* Take the cache write lock *before* touching any shared cache state
+     * (including the CacheInfo pointer itself).  Without this, the very first
+     * read of CacheInfo->NodeChunk races with the one-time initialization
+     * done on the main thread.  This task runs as a low-frequency timer, so
+     * holding the lock for the scan is acceptable. */
+    RWLock_WrLock(CacheLock);
 
     const Array *ChunkList = &(CacheInfo->NodeChunk);
     int         loop = ChunkList->Used - 1;
@@ -66,6 +71,7 @@ static void DNSCacheTTLCountdown_Task(void *Unused, void *Unused2)
 
     if( loop < 0 )
     {
+        RWLock_UnWLock(CacheLock);
         return;
     }
 
@@ -73,18 +79,13 @@ static void DNSCacheTTLCountdown_Task(void *Unused, void *Unused2)
 
     time_t      CurrentTime = time(NULL);
 
+
     while( Node != NULL )
     {
         if( Node->TTL > 0 )
         {
             if( CurrentTime - Node->TimeAdded >= Node->TTL )
             {
-                if(GotMutex == FALSE)
-                {
-                    RWLock_WrLock(CacheLock);
-                    GotMutex = TRUE;
-                }
-
                 Node->TTL = 0;
 
                 *(char *)(MapStart + Node->Offset) = 0xFD;
@@ -105,18 +106,15 @@ static void DNSCacheTTLCountdown_Task(void *Unused, void *Unused2)
         }
     }
 
-    if(GotMutex == TRUE)
+    if( ChunkList->Used == 0 )
     {
-        if( ChunkList->Used == 0 )
-        {
-            (*CacheEnd) = sizeof(struct _Header);
-        } else {
-            Node = (Cht_Node *)Array_GetBySubscript(ChunkList, ChunkList->Used - 1);
-            (*CacheEnd) = Node->Offset + Node->Length;
-        }
-
-        RWLock_UnWLock(CacheLock);
+        (*CacheEnd) = sizeof(struct _Header);
+    } else {
+        Node = (Cht_Node *)Array_GetBySubscript(ChunkList, ChunkList->Used - 1);
+        (*CacheEnd) = Node->Offset + Node->Length;
     }
+
+    RWLock_UnWLock(CacheLock);
 }
 
 static BOOL IsReloadable(void)
@@ -354,6 +352,16 @@ int DNSCache_Init(ConfigFileInfo *ConfigInfo)
     }
 
     RWLock_Init(CacheLock);
+
+    /* Synchronization barrier: the cache header (CacheInfo) and the mapped
+     * region (MapStart) were written by this thread during initialization
+     * *without* holding CacheLock.  Acquire and release the write lock once
+     * here so that the happens-before relationship between this
+     * initialization and the later lock-protected reads in
+     * DNSCacheTTLCountdown_Task is explicit.  This is required for tools such
+     * as helgrind to see the ordering (and is harmless at runtime). */
+    RWLock_WrLock(CacheLock);
+    RWLock_UnWLock(CacheLock);
 
     Inited = TRUE;
 

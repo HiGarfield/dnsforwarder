@@ -72,6 +72,11 @@ void WinMsgQue_Destroy(WinMsgQue *q)
 {
     q->q.Free(&(q->q));
     EFFECTIVE_LOCK_DESTROY(q->l);
+    if( q->e != NULL )
+    {
+        CloseHandle(q->e);
+        q->e = NULL;
+    }
 }
 
 int WinMsgQue_Init(WinMsgQue *q, int MsgSize)

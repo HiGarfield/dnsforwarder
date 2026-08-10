@@ -268,12 +268,16 @@ static void ParseInt32(ConfigOption *Option, const char *Value)
 
         case STRATEGY_APPEND:
             {
-                int32_t SpecifiedValue;
+                int32_t SpecifiedValue = 0;
 
-                sscanf(Value, "%d", &SpecifiedValue);
-                Option->Holder.INT32 += SpecifiedValue;
-
-                Option->Status = STATUS_SPECIAL_VALUE;
+                if( sscanf(Value, "%d", &SpecifiedValue) == 1 )
+                {
+                    Option->Holder.INT32 += SpecifiedValue;
+                    Option->Status = STATUS_SPECIAL_VALUE;
+                } else {
+                    ERRORMSG("Ignoring invalid integer value for %s: %s\n",
+                             Option->Name, Value);
+                }
             }
             break;
 

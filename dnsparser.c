@@ -66,7 +66,10 @@ int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart
             {
                 return -1;
             }
-            if( NameItr == DNSBody + LabelPointer )
+            /* Only meaningful when DNSBody is known: `DNSBody + LabelPointer`
+               would be a NULL + non-zero offset (undefined behaviour) for the
+               DNSJumpOverName helper, which passes DNSBody == NULL. */
+            if( DNSBody != NULL && NameItr == DNSBody + LabelPointer )
             {
                 // malformed, dead loop
                 return -1;

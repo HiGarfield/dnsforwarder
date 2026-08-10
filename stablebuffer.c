@@ -83,7 +83,7 @@ static void *WriteHere(Array *MetaInfo, int DataLength)
 static void *Add(StableBuffer *s, const void *Data, int Length, BOOL Align)
 {
     void *wh = WriteHere(&(s->MetaInfo),
-                         Align ? ROUND_UP(Length, sizeof(void *)) : Length
+                         Align ? ROUND_UP((size_t)Length, sizeof(void *)) : (size_t)Length
                          );
 
     if( wh == NULL )

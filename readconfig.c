@@ -222,7 +222,7 @@ static void ParseBoolean(ConfigOption *Option, const char *Value)
             {
                 Option->Strategy = STRATEGY_APPEND;
             }
-            /* No break */
+            /* fall through */
 
         case STRATEGY_DEFAULT:
         case STRATEGY_REPLACE:
@@ -258,7 +258,7 @@ static void ParseInt32(ConfigOption *Option, const char *Value)
             {
                 Option->Strategy = STRATEGY_APPEND;
             }
-            /* No break */
+            /* fall through */
 
         case STRATEGY_DEFAULT:
         case STRATEGY_REPLACE:
@@ -299,12 +299,12 @@ static void ParseString(ConfigOption *Option,
             {
                 Option->Strategy = STRATEGY_APPEND;
             }
-            /* No break */
+            /* fall through */
 
         case STRATEGY_DEFAULT:
         case STRATEGY_REPLACE:
             Option->Holder.str.Clear(&(Option->Holder.str));
-            /* No break */
+            /* fall through */
 
         case STRATEGY_APPEND:
             if( Option->Holder.str.Add(&(Option->Holder.str),
@@ -414,7 +414,7 @@ int ConfigRead(ConfigFileInfo *Info)
 
                 case TYPE_PATH:
                     StringDelimiters = "";
-                    /* No break */
+                    /* fall through */
 
                 case TYPE_STRING:
                     ParseString(Option,
@@ -457,7 +457,7 @@ int ConfigRead(ConfigFileInfo *Info)
 
                 ExpandPath(ValuePos, sizeof(Buffer) - (ValuePos - Buffer));
                 StringDelimiters = "";
-                /* No break */
+                /* fall through */
 
             case TYPE_STRING:
                 ParseString(Option,

@@ -45,7 +45,7 @@ int Log_Init(ConfigFileInfo *ConfigInfo, BOOL PrintScreen, BOOL Debug)
                  ConfigGetRawString(ConfigInfo, "LogFileFolder"),
                  PATH_SLASH_CH
                  )
-        >= sizeof(FilePath)
+        >= (int)sizeof(FilePath)
     )
     {
         return -36;
@@ -114,7 +114,7 @@ static void CheckLength(void)
                          FilePath,
                          CurrentNumber
                          )
-                >= sizeof(FileRenamed)
+                >= (int)sizeof(FileRenamed)
             )
             {
                 return;

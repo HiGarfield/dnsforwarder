@@ -976,14 +976,14 @@ int ExpandPath(char *String, int BufferLength)
 
     State = ExpandEnvironmentStrings(String, TempStr, sizeof(TempStr) - 1);
 
-    if( State == 0 || State >= sizeof(TempStr) - 1 )
+    if( State == 0 || State >= (int)(sizeof(TempStr) - 1) )
     {
         return -1;
     }
 
     TempStr[sizeof(TempStr) - 1] = '\0';
 
-    if( strlen(TempStr) + 1 > BufferLength )
+    if( (int)strlen(TempStr) + 1 > BufferLength )
     {
         return -1;
     }
@@ -1043,7 +1043,7 @@ char *GetLocalPathFromURL(const char *URL, char *Buffer, int BufferLength)
     --Itr;
 #endif
 
-    if( strlen(Itr) + 1 > BufferLength )
+    if( (int)strlen(Itr) + 1 > BufferLength )
     {
         return NULL;
     }
@@ -1304,7 +1304,7 @@ void ClearTCPSocketBuffer(SOCKET Sock, int Length)
 
         UnitLength = recv(Sock,
                           BlackHole,
-                          sizeof(BlackHole) < Length ? sizeof(BlackHole) : Length,
+                          sizeof(BlackHole) < (size_t)Length ? sizeof(BlackHole) : (size_t)Length,
                           0
                           );
 

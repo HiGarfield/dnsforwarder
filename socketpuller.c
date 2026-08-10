@@ -69,7 +69,7 @@ PUBFUNC SOCKET SocketPuller_Select(SocketPuller *p,
             {
                 continue;
             }
-            /* No break; */
+            /* fall through */
         case 0:
             /* timeout */
             s = INVALID_SOCKET;

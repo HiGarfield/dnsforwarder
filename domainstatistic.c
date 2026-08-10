@@ -33,7 +33,7 @@ static unsigned long int    InitTime_Num;
 static char *PreOutput = NULL;
 static char *PostOutput = NULL;
 
-volatile static BOOL    SkipStatistic = FALSE;
+static volatile BOOL    SkipStatistic = FALSE;
 
 static int GetPreAndPost(ConfigFileInfo *ConfigInfo)
 {

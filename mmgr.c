@@ -622,7 +622,7 @@ Modules_SafeCleanup(ModuleMap *ModuleMap)
         while( (M = BI.NextBlock(&BI)) != NULL )
         {
             BytesOfMetaInfo = BI.CurrentBlockUsed(&BI);
-            for( i = 0; i * sizeof(ModuleInterface) < BytesOfMetaInfo; ++i, ++M )
+            for( i = 0; i * (int)sizeof(ModuleInterface) < (int)BytesOfMetaInfo; ++i, ++M )
             {
                 if( strcmp(M->ModuleName, "UDP") == 0 )
                 {

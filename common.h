@@ -185,7 +185,7 @@
 #endif
 
     /* pthread */
-    #define CREATE_THREAD(func_ptr, para_ptr, return_value) (pthread_create(&return_value, NULL, (void *(*)())(func_ptr), (para_ptr)))
+    #define CREATE_THREAD(func_ptr, para_ptr, return_value) (pthread_create(&(return_value), NULL, (void *(*)(void *))(func_ptr), (para_ptr)))
     #define EXIT_THREAD(r)  pthread_exit(r)
     #define DETACH_THREAD(t)    pthread_detach(t)
 

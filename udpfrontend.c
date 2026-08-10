@@ -71,6 +71,12 @@ UdpFrontend_Work(void *Unused)
                              &AddrLen
                              );
 
+        if( RecvState < 0 )
+        {
+            INFO("An error occured while receiving from a UDP client, ignored.\n");
+            continue;
+        }
+
         if( *f == AF_INET )
         {
             IPv4AddressToAsc(&(((struct sockaddr_in *)IncomingAddress)->sin_addr),
@@ -80,14 +86,6 @@ UdpFrontend_Work(void *Unused)
             IPv6AddressToAsc(&(((struct sockaddr_in6 *)IncomingAddress)->sin6_addr),
                              Agent
                              );
-        }
-
-        if( RecvState < 0 )
-        {
-            INFO("An error occured while receiving from UDP client %s, not a big deal.\n",
-                 Agent
-                 );
-            continue;
         }
 
         IHeader_Fill(Header,

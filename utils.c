@@ -458,10 +458,11 @@ int IPv6AddressToNum(const char *asc, void *Buffer)
 {
     int16_t *buf_s  =   (int16_t *)Buffer;
     const char  *itr;
+    const char  *head = asc;
 
     memset(Buffer, 0, 16);
 
-    for(; isspace(*asc); ++asc);
+    for(; isspace((unsigned char)*asc); ++asc);
 
     if( strstr(asc, "::") == NULL )
     {   /* full format */
@@ -480,7 +481,7 @@ int IPv6AddressToNum(const char *asc, void *Buffer)
     } else {
         /* not full*/
 
-        if( asc[2] == '\0' || isspace(asc[2]) )
+        if( asc[2] == '\0' || isspace((unsigned char)asc[2]) )
         {
             memset(Buffer, 0, 16);
             return 0;
@@ -499,6 +500,13 @@ int IPv6AddressToNum(const char *asc, void *Buffer)
                 break;
             }
 
+            /* Bound the write index: a "::" abbreviated address may have at
+               most 7 explicit groups before the gap. Without this check an
+               over-long literal (e.g. "1:2:3:4:5:6:7:8:9") keeps writing past
+               the 16-byte Buffer and corrupts the caller's stack. */
+            if( buf_s >= (int16_t *)Buffer + 8 )
+                return 0;
+
             sscanf(itr, "%x:", &a);
             SET_16_BIT_U_INT(buf_s, a);
             ++buf_s;
@@ -509,9 +517,18 @@ int IPv6AddressToNum(const char *asc, void *Buffer)
         while(1)
         {
             uint32_t a;
-            for(itr = asc; *itr != ':'; --itr);
+            /* Scan backwards for the previous ':' but never walk before the
+               start of the input; otherwise we read out of bounds. */
+            for(itr = asc; itr > head && *itr != ':'; --itr);
+
+            if( *itr != ':' )
+                break;
 
             if( *(itr + 1) == '\0' )
+                break;
+
+            /* Bound the write index from below as well. */
+            if( buf_s < (int16_t *)Buffer )
                 break;
 
             sscanf(itr + 1, "%x", &a);

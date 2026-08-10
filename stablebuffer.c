@@ -231,6 +231,11 @@ static void StableBufferIterator_RemoveLastNBytesOfCurrentBlock(
 {
     StableBuffer_MetaInfo   *m = StableBufferIterator_CurrentMeta(i);
 
+    if( m == NULL )
+    {
+        return;
+    }
+
     if( m->Used < n )
     {
         m->Used = 0;

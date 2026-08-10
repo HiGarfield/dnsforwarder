@@ -156,6 +156,13 @@ void Log_Print(const char *Type, const char *format, ...)
 
     va_start(ap, format);
 
+    /* We may need the argument list twice (once for the file, once for the
+       console). Re-using a va_list after it has been consumed by vfprintf is
+       undefined behaviour on most ABIs (x64), so make a copy before the first
+       use and consume the copy separately. */
+    va_list ap_copy;
+    va_copy(ap_copy, ap);
+
     EFFECTIVE_LOCK_GET(PrintLock);
     if( LogFile != NULL )
     {
@@ -179,18 +186,16 @@ void Log_Print(const char *Type, const char *format, ...)
 
     if( PrintConsole )
     {
-        /* `ap` is already initialised by the va_start above and must only be
-           ended once. Re-initialising it here is undefined behaviour and can
-           corrupt the calling frame, so we reuse the same `ap`. */
         printf(Type == NULL ? "%s " : "%s [%s] ",
                DateAndTime,
                Type == NULL ? "" : Type
                );
-        vprintf(format, ap);
+        vprintf(format, ap_copy);
     }
 
     EFFECTIVE_LOCK_RELEASE(PrintLock);
 
+    va_end(ap_copy);
     va_end(ap);
 }
 

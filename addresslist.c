@@ -161,7 +161,20 @@ struct sockaddr *AddressList_GetOneBySubscript(AddressList *a, sa_family_t *fami
 
 struct sockaddr *AddressList_GetOne(AddressList *a, sa_family_t *family)
 {
-    return AddressList_GetOneBySubscript(a, family, a->Counter % Array_GetUsed(&(a->AddressList)));
+    int Used;
+
+    if( a == NULL )
+    {
+        return NULL;
+    }
+
+    Used = Array_GetUsed(&(a->AddressList));
+    if( Used <= 0 )
+    {
+        return NULL;
+    }
+
+    return AddressList_GetOneBySubscript(a, family, a->Counter % Used);
 }
 
 struct sockaddr **AddressList_GetPtrListOfFamily(AddressList *a, sa_family_t family)

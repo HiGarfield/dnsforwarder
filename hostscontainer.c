@@ -194,7 +194,7 @@ PRIFUNC int HostsContainer_AddNode(HostsContainer   *Container,
             {
                 int i, BytesOfMetaInfo;
                 BytesOfMetaInfo = IPI.CurrentBlockUsed(&IPI);
-                for( i = 0; i * sizeof(IpAddr) < BytesOfMetaInfo; ++i, ++ipAddr )
+                for( i = 0; (i + 1) * (int)sizeof(IpAddr) <= BytesOfMetaInfo; ++i, ++ipAddr )
                 {
                     if( memcmp(ipAddr, Data, DataLength) == 0 )
                     {

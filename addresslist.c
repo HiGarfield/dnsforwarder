@@ -67,11 +67,17 @@ sa_family_t AddressList_ConvertFromString(Address_Type *Out, const char *Addr_Po
                 sscanf(Addr_Port + 1, "%45[^]]", Addr);
 
                 PortPos = strchr(PortPos, ':');
-                if( PortPos == NULL )
+                /* sscanf() leaves Port untouched when the text after ':' is
+                   not a number (e.g. "[::1]:" or "[::1]:http"). Seed it with
+                   the default so a malformed port can never make the server
+                   talk to a random stack-garbage port. */
+                Port = DefaultPort;
+                if( PortPos != NULL )
                 {
-                    Port = DefaultPort;
-                } else {
-                    sscanf(PortPos + 1, "%hu", &Port);
+                    if( sscanf(PortPos + 1, "%hu", &Port) != 1 )
+                    {
+                        Port = DefaultPort;
+                    }
                 }
 
                 Out->Addr.Addr6.sin6_family = Family;
@@ -96,11 +102,16 @@ sa_family_t AddressList_ConvertFromString(Address_Type *Out, const char *Addr_Po
                 /* LENGTH_OF_IPV4_ADDRESS_ASCII = 15 */
                 sscanf(Addr_Port, "%15[^:]", Addr);
 
-                if( PortPos == NULL )
+                /* Same reasoning as the IPv6 branch: a trailing or
+                   non-numeric port must fall back to DefaultPort instead of
+                   leaving Port uninitialised. */
+                Port = DefaultPort;
+                if( PortPos != NULL )
                 {
-                    Port = DefaultPort;
-                } else {
-                    sscanf(PortPos + 1, "%hu", &Port);
+                    if( sscanf(PortPos + 1, "%hu", &Port) != 1 )
+                    {
+                        Port = DefaultPort;
+                    }
                 }
                 FILL_ADDR4(Out->Addr.Addr4, Family, Addr, Port);
 

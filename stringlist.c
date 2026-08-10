@@ -179,7 +179,7 @@ static const char **StringList_ToCharPtrArray(StringList *s)
         {
             while( --Index >= 0 )
             {
-                SafeFree((void *)ret[Index]);
+                SafeFree(ret[Index]);
             }
             SafeFree(ret);
             return NULL;

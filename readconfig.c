@@ -602,6 +602,7 @@ void ConfigFree(ConfigFileInfo *Info)
                 case TYPE_BOOLEAN:
                     break;
 
+                case TYPE_PATH:
                 case TYPE_STRING:
                     Option->Holder.str.Free(&(Option->Holder.str));
                     break;

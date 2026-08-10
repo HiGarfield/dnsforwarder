@@ -299,7 +299,17 @@ BOOL StringChunk_Match_OnlyWildCard_GetOne(StringChunk  *dl,
 
     if( Array_GetUsed(pm) > 0 )
     {
-        srand(time(NULL));
+        /* Seed the PRNG only once. Calling srand(time(NULL)) on every lookup
+           resets the sequence whenever calls happen within the same second
+           (the normal case at runtime), which makes rand() always return the
+           same value and collapses random upstream / load-balancing selection
+           to a single fixed choice. */
+        static volatile BOOL Seeded = FALSE;
+        if( Seeded == FALSE )
+        {
+            srand((unsigned int)time(NULL));
+            Seeded = TRUE;
+        }
         *Data = *((void **)Array_GetBySubscript(pm, rand() % Array_GetUsed(pm)));
     } else {
         *Data = NULL;

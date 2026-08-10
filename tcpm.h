@@ -17,6 +17,11 @@ struct _TcpM {
 
     ThreadHandle    WorkThread;
 
+    /* Spin lock guarding the lifecycle flags (IsServer / WorkThread) so that
+     * the shutdown path (Modules_SafeCleanup) can read them without racing
+     * against the worker thread that writes them on exit. */
+    EFFECTIVE_LOCK  Lock;
+
     int IsServer;
 
     const char      *ServiceName;

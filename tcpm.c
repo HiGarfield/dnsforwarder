@@ -542,7 +542,17 @@ static int TcpM_Cleanup(TcpM *m)
     free((void *)(m->ProxyName));
     m->ProxyName = NULL;
 
+    /* Publish "thread exited" under the lock so Modules_SafeCleanup's wait
+     * loop reads it synchronously instead of racing on a plain write.
+     *
+     * Note: the lock is deliberately *not* destroyed here.  Modules_SafeCleanup
+     * keeps polling IsServer/WorkThread under this very lock until it observes
+     * that the thread is gone, so destroying it at this point would leave that
+     * loop locking freed/destroyed state on its next iteration.  The lock lives
+     * inside the module instance and dies with it in Modules_Free(). */
+    EFFECTIVE_LOCK_GET(m->Lock);
     m->WorkThread = NULL_THREAD;
+    EFFECTIVE_LOCK_RELEASE(m->Lock);
 
     return 0;
 }
@@ -571,10 +581,22 @@ TcpM_Works(TcpM *m)
     Header = (IHeader *)ReceiveBuffer;
     Entity = ReceiveBuffer + sizeof(IHeader);
 
-    while( m->IsServer )
+    for( ; ; )
     {
+        int KeepServing;
         SOCKET  s;
         struct timeval TimeOut = TimeOut_Const;
+
+        /* IsServer is toggled to 0 by Modules_SafeCleanup on shutdown.  Read
+         * it under the module spin lock so the read is synchronized with that
+         * writer (avoids a data race / UB). */
+        EFFECTIVE_LOCK_GET(m->Lock);
+        KeepServing = m->IsServer;
+        EFFECTIVE_LOCK_RELEASE(m->Lock);
+        if( !KeepServing )
+        {
+            break;
+        }
 
         s = p->Select(p, &TimeOut, (void **)&TcpCtx, TRUE, FALSE, &Err);
 
@@ -966,6 +988,7 @@ int TcpM_Init(TcpM *m, const char *Services, BOOL Parallel, const char *SocksPro
 
     m->Parallel = Parallel;
     m->IsServer = 1;
+    EFFECTIVE_LOCK_INIT(m->Lock);
 
     CREATE_THREAD(TcpM_Works, m, m->WorkThread);
     DETACH_THREAD(m->WorkThread);

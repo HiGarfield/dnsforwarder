@@ -37,8 +37,22 @@ WINAPI
 #endif
 UdpM_Sweep_Thread(UdpM *m)
 {
-    while( m->IsServer || m->WorkThread != NULL_THREAD)
+    for( ; ; )
     {
+        int KeepSweeping;
+
+        /* Read the lifecycle flags under the lock.  Must release before
+         * calling SweepTask(), which takes the same (non-recursive) spin
+         * lock itself, otherwise we would deadlock on re-entry. */
+        EFFECTIVE_LOCK_GET(m->Lock);
+        KeepSweeping = m->IsServer || (m->WorkThread != NULL_THREAD);
+        EFFECTIVE_LOCK_RELEASE(m->Lock);
+
+        if( !KeepSweeping )
+        {
+            break;
+        }
+
         SweepTask(m, (SweepCallback)SweepWorks);
         SLEEP(10000);
     }
@@ -49,7 +63,10 @@ UdpM_Sweep_Thread(UdpM *m)
     free((void *)(m->ServiceName));
     m->ServiceName = NULL;
 
+    /* Publish "sweep thread exited" under the lock. */
+    EFFECTIVE_LOCK_GET(m->Lock);
     m->SweepThread = NULL_THREAD;
+    EFFECTIVE_LOCK_RELEASE(m->Lock);
 
     return 0;
 }
@@ -64,7 +81,11 @@ static int UdpM_Cleanup(UdpM *m)
     SafeFree(m->Parallels.addrs);
     AddressList_Free(&(m->AddrList));
 
+    /* Publish "thread exited" under the lock so Modules_SafeCleanup's wait
+     * loop reads it synchronously instead of racing on a plain write. */
+    EFFECTIVE_LOCK_GET(m->Lock);
     m->WorkThread = NULL_THREAD;
+    EFFECTIVE_LOCK_RELEASE(m->Lock);
 
     return 0;
 }
@@ -96,10 +117,22 @@ UdpM_Works(UdpM *m)
     Header = (IHeader *)ReceiveBuffer;
     Entity = ReceiveBuffer + sizeof(IHeader);
 
-    while( m->IsServer )
+    for( ; ; )
     {
         int RecvState;
         int ContextState;
+        int KeepServing;
+
+        /* IsServer is toggled to 0 by Modules_SafeCleanup on shutdown.  Read
+         * it under the module spin lock so the read is synchronized with that
+         * writer (otherwise helgrind flags a data race and the access is UB). */
+        EFFECTIVE_LOCK_GET(m->Lock);
+        KeepServing = m->IsServer;
+        EFFECTIVE_LOCK_RELEASE(m->Lock);
+        if( !KeepServing )
+        {
+            break;
+        }
 
         /* Set up socket */
         if( m->Departure == INVALID_SOCKET )

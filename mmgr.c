@@ -626,14 +626,25 @@ Modules_SafeCleanup(ModuleMap *ModuleMap)
             {
                 if( strcmp(M->ModuleName, "UDP") == 0 )
                 {
+                    /* Clear IsServer and read the thread handles under the
+                     * module's spin lock, matching the locking done by
+                     * UdpM_Works / UdpM_Cleanup / UdpM_Sweep_Thread.  Without
+                     * this synchronization the shutdown writer races with the
+                     * still-running worker threads on these fields (data race
+                     * reported by helgrind).  Keep the lock brief: the sleep
+                     * below must happen lock-free so the workers can finish. */
+                    EFFECTIVE_LOCK_GET(M->ModuleUnion.Udp.Lock);
                     M->ModuleUnion.Udp.IsServer = 0;
                     InUse |= M->ModuleUnion.Udp.WorkThread != NULL_THREAD;
                     InUse |= M->ModuleUnion.Udp.SweepThread != NULL_THREAD;
+                    EFFECTIVE_LOCK_RELEASE(M->ModuleUnion.Udp.Lock);
                 }
                 else if( strcmp(M->ModuleName, "TCP") == 0 )
                 {
+                    EFFECTIVE_LOCK_GET(M->ModuleUnion.Tcp.Lock);
                     M->ModuleUnion.Tcp.IsServer = 0;
                     InUse |= M->ModuleUnion.Tcp.WorkThread != NULL_THREAD;
+                    EFFECTIVE_LOCK_RELEASE(M->ModuleUnion.Tcp.Lock);
                 }
             }
         }

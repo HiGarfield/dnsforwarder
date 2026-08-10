@@ -208,7 +208,9 @@ static int FilterType_Init(ConfigFileInfo *ConfigInfo)
         OneTypePendingToAdd_Str = sli.Next(&sli);
     }
 
-    DisableType_Str->Free(DisableType_Str);
+    /* `ConfigGetStringList()` hands out a borrowed reference to the list
+       stored inside `ConfigInfo`; releasing it here would destroy the
+       option and leave `ConfigFree()` with a dangling holder. */
 
     return 0;
 }

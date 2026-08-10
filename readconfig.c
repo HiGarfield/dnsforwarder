@@ -90,10 +90,18 @@ int ConfigAddAlias(ConfigFileInfo *Info,
     New.Type = TYPE_ALIAS;
 
     New.Holder.Aliasing.Target = DUP_STRING(Info, Target);
+    if( New.Holder.Aliasing.Target == NULL )
+    {
+        return -97;
+    }
 
     if( Prepending != NULL )
     {
         New.Holder.Aliasing.Prepending = DUP_STRING(Info, Prepending);
+        if( New.Holder.Aliasing.Prepending == NULL )
+        {
+            return -98;
+        }
     } else {
         New.Holder.Aliasing.Prepending = NULL;
     }

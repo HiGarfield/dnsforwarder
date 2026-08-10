@@ -213,13 +213,17 @@ int GetFromInternet_Base(const char *URL, const char *File)
         goto Exit_1;
     }
 
+    /* Timeouts must be configured on the session handle BEFORE opening the
+       URL, otherwise the connect/receive timeout never takes effect for this
+       request and InternetOpenUrl may block indefinitely. */
+    InternetSetOption(webopen, INTERNET_OPTION_CONNECT_TIMEOUT, &TimeOut, sizeof(TimeOut));
+    InternetSetOption(webopen, INTERNET_OPTION_RECEIVE_TIMEOUT, &TimeOut, sizeof(TimeOut));
+
     webopenurl = InternetOpenUrl(webopen, URL, NULL, 0, INTERNET_FLAG_RELOAD, 0);
     if( webopenurl == NULL ){
         ret = -1 * (int)GetLastError();
         goto Exit_2;
     }
-
-    InternetSetOption(webopenurl, INTERNET_OPTION_CONNECT_TIMEOUT, &TimeOut, sizeof(TimeOut));
 
     fp = fopen(File, "wb" );
     if( fp == NULL )

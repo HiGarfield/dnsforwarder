@@ -439,7 +439,13 @@ static int ArgParse(int argc, char *argv_ori[])
 
         if(strcmp("-f", *argv) == 0)
         {
-            ConfigFile = *(++argv);
+            ++argv;
+            if( *argv == NULL )
+            {
+                printf("Error: missing argument for -f\n");
+                return -241;
+            }
+            ConfigFile = *argv;
             ++argv;
             continue;
         }

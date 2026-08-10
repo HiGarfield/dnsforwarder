@@ -646,6 +646,15 @@ Modules_SafeCleanup(ModuleMap *ModuleMap)
         SLEEP(1000);
     }
 
+    /* Ensure no other thread is still holding ModulesLock (e.g. MMgr_Send
+     * dereferencing CurModuleMap->Distributor / a module's Send pointer).
+     * Taking and immediately releasing the write lock blocks until every
+     * reader has exited, so the structures we are about to free cannot be
+     * in use. Without this barrier a concurrent MMgr_Send could touch freed
+     * memory (use-after-free) during a group-file reload. */
+    RWLock_WrLock(ModulesLock);
+    RWLock_UnWLock(ModulesLock);
+
     Modules_Free(ModuleMap);
     INFO("Last GroupFile Modules freed.\n");
 

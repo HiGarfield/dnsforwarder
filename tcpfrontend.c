@@ -118,13 +118,26 @@ TcpFrontend_Work(void *Unused)
             }
 
             CLOSE_SOCKET(sock_c);
-        } else if( RecvState == 1 )
-        {
-            INFO("Invalid data received from TCP client %s.\n", Agent);
+        } else {
+            /* RecvState == 1: partial header;
+               RecvState == 0: peer closed the connection (FIN);
+               RecvState <  0: socket error (e.g. RST).
+               In all these cases the socket must be released, otherwise
+               every normally-disconnected TCP client leaks a handle and
+               the daemon eventually exhausts its fd pool. */
+            if( RecvState < 0 )
+            {
+                INFO("Connection error from TCP client %s.\n", Agent);
+            } else if( RecvState == 0 )
+            {
+                INFO("TCP client %s disconnected.\n", Agent);
+            } else {
+                INFO("Invalid data received from TCP client %s.\n", Agent);
+            }
             CLOSE_SOCKET(sock_c);
         }
 
-        /* recv failed */
+        /* remove from puller if it was an existing connection */
         if( IsNewConnected == FALSE )
         {
             Frontend.Del(&Frontend, sock_c);

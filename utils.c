@@ -112,12 +112,20 @@ int GetModulePath(char *Buffer, int BufferLength)
     ModuleNameLength = GetModuleFileName(NULL, ModuleName, sizeof(ModuleName) - 1);
 
     if( ModuleNameLength == 0 )
+    {
+        if( BufferLength > 0 )
+            Buffer[0] = '\0';
         return 0;
+    }
 
     SlashPosition = strrchr(ModuleName, '\\');
 
     if( SlashPosition == NULL )
+    {
+        if( BufferLength > 0 )
+            Buffer[0] = '\0';
         return 0;
+    }
 
     *SlashPosition = '\0';
 
@@ -520,6 +528,7 @@ int IPv4AddressToNum(const char *asc, void *Buffer)
     unsigned char *BufferInByte = (unsigned char *)Buffer;
 
     int Components[4];
+    memset(Components, 0, sizeof(Components));
 
     ret = sscanf(asc, "%d.%d.%d.%d", Components, Components + 1, Components + 2, Components + 3);
     BufferInByte[0] = Components[0];

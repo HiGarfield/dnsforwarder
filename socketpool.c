@@ -9,8 +9,9 @@ static int SocketPool_Add(SocketPool *sp,
                           )
 {
     SOCKET *s = (SOCKET *)sp->SocketUnit;
+    int Capacity = sp->DataLength - (int)sizeof(SOCKET);
 
-    if( DataLength > sp->DataLength - sizeof(SOCKET) )
+    if( DataLength < 0 || Capacity < 0 || DataLength > Capacity )
     {
         return -120;
     }
@@ -24,7 +25,7 @@ static int SocketPool_Add(SocketPool *sp,
     /* Clear the trailing bytes of the unit. s is a SOCKET*, so pointer
        arithmetic uses sizeof(SOCKET); cast to char* to keep byte offsets. */
     memset((char *)s + sizeof(SOCKET) + DataLength, 0,
-           sp->DataLength - sizeof(SOCKET) - DataLength);
+           (size_t)(Capacity - DataLength));
 
     if( sp->t.Add(&(sp->t), sp->SocketUnit) == NULL )
     {

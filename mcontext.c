@@ -49,6 +49,14 @@ static void ModuleContext_Sweep(ModuleContext *c, SweepCallback cb, void *Arg)
             cb(*Context, i + 1, Arg);
         }
 
+        /* Reset the header before deleting so any external pointer still
+         * holding this context (e.g. TcpCtx->MsgCtx, used by the TCP
+         * keep-alive retry loop) sees Domain[0] == 0 and will not
+         * dereference this memory after the BST reuses the node. Without
+         * this, a sweep racing with a socket timeout could send a reply to
+         * (or free) a context that has already been recycled -> UAF. */
+        IHeader_Reset((IHeader *)*Context);
+
         c->d.Delete(&(c->d), *Context);
     }
 

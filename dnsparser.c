@@ -493,8 +493,12 @@ static char *DnsSimpleParserIterator_Next(DnsSimpleParserIterator *i)
            plus `ExLength'
          */
 
-        int FullLength = DNSGetHostName(NULL,
-                                            INT_MAX,
+        /* Pass the real message body so DNSGetHostName performs its
+           out-of-bounds checks (compression-pointer redirection in
+           particular). Using NULL here skipped those checks and could
+           dereference an absolute address built from the pointer value. */
+        int FullLength = DNSGetHostName(i->Parser->RawDns,
+                                            i->Parser->RawDnsLength,
                                             i->CurrentPosition,
                                             NULL,
                                             0)

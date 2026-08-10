@@ -1149,10 +1149,20 @@ static int DnsSimpleParserIterator_ParseTxt(DnsSimpleParserIterator *i,
         return -1;
     }
 
-    if( DNSRRGetString(Data, i->DataLength, Resulting, (int)sizeof(Example)) < 0 )
+    /* Pass the *actual* capacity of `Resulting`: it is either the on-stack
+     * `Example` buffer (256 bytes) or a heap buffer of size i->DataLength + 1.
+     * Passing sizeof(Example) unconditionally wrongly capped the limit at 256
+     * and rejected valid TXT records whose RDATA is exactly 256 octets. */
     {
-        *Buffer = '\0';
-        goto EXIT;
+        int ResultingSize = (i->DataLength >= (int)sizeof(Example))
+                            ? (int)i->DataLength + 1
+                            : (int)sizeof(Example);
+
+        if( DNSRRGetString(Data, i->DataLength, Resulting, ResultingSize) < 0 )
+        {
+            *Buffer = '\0';
+            goto EXIT;
+        }
     }
 
     if( ReplaceStr_WithLengthChecking(Buffer,

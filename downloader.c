@@ -43,7 +43,7 @@ int GetFromInternet_MultiFiles(const char   **URLs,
     TempFile = SafeMalloc(strlen(File) + sizeof(".tmp") + 1);
     if( TempFile == NULL )
     {
-        ERRORMSG("Cannot create temp file %s\n", TempFile);
+        ERRORMSG("Cannot create temp file %s\n", File);
         return -1;
     }
 

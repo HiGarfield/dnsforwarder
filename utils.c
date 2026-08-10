@@ -1249,7 +1249,6 @@ int SetSocketNonBlock(SOCKET sock, BOOL NonBlocked)
     }
 #else
     int Flags;
-    int BlockFlag;
 
     Flags = fcntl(sock, F_GETFL, 0);
     if( Flags < 0 )
@@ -1257,14 +1256,17 @@ int SetSocketNonBlock(SOCKET sock, BOOL NonBlocked)
         return -1;
     }
 
+    /* Clearing O_NONBLOCK has to mask the bit off. `Flags | ~O_NONBLOCK`
+       would instead turn on every other file status flag (O_APPEND,
+       O_ASYNC, ...) on the socket. */
     if( NonBlocked == TRUE )
     {
-        BlockFlag = O_NONBLOCK;
+        Flags |= O_NONBLOCK;
     } else {
-        BlockFlag = ~O_NONBLOCK;
+        Flags &= ~O_NONBLOCK;
     }
 
-    if( fcntl(sock, F_SETFL, Flags | BlockFlag) < 0 )
+    if( fcntl(sock, F_SETFL, Flags) < 0 )
     {
         return -1;
     }

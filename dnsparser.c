@@ -627,7 +627,7 @@ static int DnsSimpleParserIterator_Parse16Uint(DnsSimpleParserIterator *i,
         return 2;
     }
 
-    if( strlen(Format) + 1 > BufferLength )
+    if( BufferLength <= 0 || strlen(Format) + 1 > (size_t)BufferLength )
     {
         return -1;
     }
@@ -694,7 +694,7 @@ static int DnsSimpleParserIterator_Parse32Uint(DnsSimpleParserIterator *i,
         return 4;
     }
 
-    if( strlen(Format) + 1 > BufferLength )
+    if( BufferLength <= 0 || strlen(Format) + 1 > (size_t)BufferLength )
     {
         return -1;
     }
@@ -760,7 +760,7 @@ static int DnsSimpleParserIterator_ParseIPv4(DnsSimpleParserIterator *i,
         return 4;
     }
 
-    if( strlen(Format) + 1 > BufferLength )
+    if( BufferLength <= 0 || strlen(Format) + 1 > (size_t)BufferLength )
     {
         return -1;
     }
@@ -824,7 +824,7 @@ static int DnsSimpleParserIterator_ParseIPv6(DnsSimpleParserIterator *i,
         return 16;
     }
 
-    if( strlen(Format) + 1 > BufferLength )
+    if( BufferLength <= 0 || strlen(Format) + 1 > (size_t)BufferLength )
     {
         return -1;
     }
@@ -883,7 +883,7 @@ static int DnsSimpleParserIterator_UnpackLabeledName(DnsSimpleParserIterator *i,
         Format = "%v";
     }
 
-    if( strlen(Format) + 1 > BufferLength )
+    if( BufferLength <= 0 || strlen(Format) + 1 > (size_t)BufferLength )
     {
         return -1;
     }
@@ -1150,7 +1150,7 @@ static int DnsSimpleParserIterator_ParseTxt(DnsSimpleParserIterator *i,
 
     int ret = -1;
 
-    if( strlen(Format) + 1 > BufferLength )
+    if( BufferLength <= 0 || strlen(Format) + 1 > (size_t)BufferLength )
     {
         return 0;
     }
@@ -1230,6 +1230,11 @@ static int DnsSimpleParserIterator_ParseRaw(DnsSimpleParserIterator *i,
     BOOL IsToCache = Format == NULL;
 
     if( IsToCache )
+    {
+        return -1;
+    }
+
+    if( BufferLength <= 0 || strlen(Format) + 1 > (size_t)BufferLength )
     {
         return -1;
     }

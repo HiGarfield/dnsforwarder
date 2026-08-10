@@ -914,6 +914,11 @@ int DnsGenerator_Init(DnsGenerator *g,
     g->BufferLength = BufferLength;
     g->Header = (DNSHeader *)(g->Buffer);
 
+    if( BufferLength < DNS_HEADER_LENGTH )
+    {
+        return -3;
+    }
+
     if( CopyFrom != NULL && SourceLength > 0 )
     {
         const int FourCounts[4] = {
@@ -934,6 +939,10 @@ int DnsGenerator_Init(DnsGenerator *g,
             }
         }
 
+        if( SourceLength > BufferLength )
+        {
+            return -4;
+        }
         memmove(g->Buffer, CopyFrom, SourceLength);
         g->Itr = g->Buffer + SourceLength;
 

@@ -272,6 +272,12 @@ TimeTask_Work(void *Unused)
 
         case 0:
             /* Run the task */
+            if( i == NULL || tv == NULL )
+            {
+                /* No task but select timed out: cannot happen unless the
+                   queue was empty, in which case there is nothing to do. */
+                break;
+            }
             Tv_Subtract(&Elapsed, tv);
             TimeTask_ReduceTime(&Elapsed);
 

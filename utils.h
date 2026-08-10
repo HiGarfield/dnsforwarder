@@ -116,7 +116,7 @@ char *StrRNpbrk(char *Str, const char *Ch);
 
 char *GoToNextNonSpace(const char *Here);
 
-char *GoToPrevNonSpace(char *Here);
+char *GoToPrevNonSpace(char *Here, const char *Start);
 
 int GetAddressLength(sa_family_t Family);
 

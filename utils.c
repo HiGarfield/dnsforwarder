@@ -958,9 +958,14 @@ char *GoToNextNonSpace(const char *Here)
     return (char *)StrNpbrk((char *)Here, "\t ");
 }
 
-char *GoToPrevNonSpace(char *Here)
+char *GoToPrevNonSpace(char *Here, const char *Start)
 {
-    for( ; isspace(*Here); --Here );
+    if( Here == NULL || Start == NULL )
+    {
+        return Here;
+    }
+
+    for( ; Here >= Start && isspace((unsigned char)*Here); --Here );
 
     return Here;
 }
@@ -1232,7 +1237,7 @@ int SetSocketIPv6V6only(SOCKET sock, int on)
 int SetSocketNonBlock(SOCKET sock, BOOL NonBlocked)
 {
 #ifdef _WIN32
-    unsigned long NonBlock = 1;
+    unsigned long NonBlock = (NonBlocked == TRUE) ? 1 : 0;
 
     if( ioctlsocket(sock, FIONBIO, &NonBlock) != 0 )
     {

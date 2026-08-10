@@ -2,6 +2,7 @@
 #include "ipchunk.h"
 #include "dnsgenerator.h"
 #include "goodiplist.h"
+#include "hostscontainer.h"
 
 static int HostsUtils_GetCName_Callback(int Number,
                                         HostsRecordType Type,
@@ -9,7 +10,11 @@ static int HostsUtils_GetCName_Callback(int Number,
                                         char *Buffer
                                         )
 {
-    strcpy(Buffer, Data);
+    /* `Buffer` is a fixed-size DOMAIN_NAME_LENGTH_MAX + 1 byte stack buffer at
+       every call site. Bounded copy with an explicit NUL terminator so a
+       longer-than-expected CNAME value cannot overflow it. */
+    strncpy(Buffer, Data, DOMAIN_NAME_LENGTH_MAX);
+    Buffer[DOMAIN_NAME_LENGTH_MAX] = '\0';
     return 0;
 }
 

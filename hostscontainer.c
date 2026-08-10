@@ -224,6 +224,15 @@ OUT_SEARCH:
                                                       DataLength,
                                                       TRUE
                                                       );
+
+                if( ipAddr == NULL )
+                {
+                    /* Out of memory: TableIPAddr.Add() failed, so there is no
+                       valid IpAddr to rebind a Zone onto. Bail out instead of
+                       dereferencing a NULL pointer at the IpAddr_HasZone call
+                       below. */
+                    return -171;
+                }
             }
 
             /* `ipAddr` now lives inside TableIPAddr, but IpAddr_Parse points

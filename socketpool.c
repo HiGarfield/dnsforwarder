@@ -127,7 +127,15 @@ static void SocketPool_Free(SocketPool *sp, BOOL CloseAllSocket)
 
 static int Compare(const SocketUnit *_1, const SocketUnit *_2)
 {
-    return (int)(*(SOCKET *)_1) - (int)(*(SOCKET *)_2);
+    SOCKET a = *(SOCKET *)_1;
+    SOCKET b = *(SOCKET *)_2;
+
+    /* Must satisfy strict weak ordering. A plain subtraction both truncates
+       the handle on Win64 (SOCKET is 64-bit) and can overflow signed int,
+       which would make the BST delete/search the wrong socket unit. */
+    if( a < b ) return -1;
+    if( a > b ) return 1;
+    return 0;
 }
 
 int SocketPool_Init(SocketPool *sp, int DataLength)

@@ -872,8 +872,14 @@ int MMgr_Send(const char *Buffer, int BufferLength)
        )
     {
     } else if( Array_GetUsed(CurModuleMap->ModuleArray) > 0 ){
+        /* DNSGetQueryIdentifier() returns a signed 16-bit value; its high
+           bit (>= 0x8000) makes it negative after the int promotion, and the
+           modulo below would then yield a negative subscript that
+           Array_GetBySubscript rejects, silently dropping ~half of all
+           queries. Mask with 0xFFFF first so the result is always a valid
+           positive index. */
         i = Array_GetBySubscript(CurModuleMap->ModuleArray,
-                                 (int)(DNSGetQueryIdentifier(IHEADER_TAIL(h))) %
+                                 (int)((unsigned short)DNSGetQueryIdentifier(IHEADER_TAIL(h))) %
                                  Array_GetUsed(CurModuleMap->ModuleArray)
                                  );
     } else {

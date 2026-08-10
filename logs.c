@@ -95,6 +95,12 @@ static void CheckLength(void)
         char FileRenamed[MAX_PATH_BUFFER + 8];
 
         fclose(LogFile);
+        /* Mark the handle as closed. CheckLength() has several early-return
+           paths (file-number overflow, rename failure, reopen failure) where
+           LogFile must not be left pointing at a closed stream, otherwise the
+           caller's fprintf/vfprintf would use-after-free it and Log_Cleanup
+           would double-fclose. */
+        LogFile = NULL;
 
         while( TRUE )
         {

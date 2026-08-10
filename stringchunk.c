@@ -161,6 +161,13 @@ BOOL StringChunk_Match_NoWildCard(StringChunk       *dl,
         return FALSE;
     }
 
+    /* A NULL lookup key (e.g. an alias target that failed to allocate) must
+       not reach strcmp below, which would dereference NULL and crash. */
+    if( Str == NULL )
+    {
+        return FALSE;
+    }
+
     nl = &(dl->List_Pos);
 
     while( FoundEntry = (EntryForString *)SimpleHT_Find(nl, Str, 0, HashValue, (const char *)FoundEntry),

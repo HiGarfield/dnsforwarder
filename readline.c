@@ -58,7 +58,7 @@ static void EliminateFootSpace(char *str)
 
     if( End >= str )
     {
-        for(; isspace(*End) && End >= str; --End);
+        for(; End >= str && isspace(*End); --End);
         *(End + 1) = '\0';
     }
 

@@ -16,6 +16,15 @@ int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart
     BOOL Redirected = FALSE;
     int RedirectCount = 0;
     int LabelCount = GET_8_BIT_U_INT(NameItr); /* The amount of characters of the next label */
+
+    /* A DNS name (all labels + length octets, excluding the final root
+       label) may never exceed 255 bytes per RFC 1035. Without this guard a
+       malformed message with labels that point at each other could make us
+       walk far past the end of the packet. */
+    if( DNSBody != NULL && (NameStart < DNSBody || NameStart >= DNSBody + DNSBodyLength) )
+    {
+        return -1;
+    }
     while( LabelCount != 0 )
     {
         if( DNSIsLabelPointerStart(LabelCount) )
@@ -26,12 +35,12 @@ int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart
                 LabelsLength += 2;
                 Redirected = TRUE;
             }
-            if( buffer == NULL )
-            {
-                break;
-            }
             /* A compression pointer needs two bytes, both of which must
-               reside inside the message. */
+               reside inside the message. These checks MUST run before the
+               `buffer == NULL` early-out below, otherwise a caller that
+               only wants to skip the name (e.g. DNSJumpOverName, which
+               passes DNSBody == NULL) would bypass all boundary checks and
+               keep reading past the end of the message. */
             if( DNSBody != NULL &&
                 NameItr + 1 >= DNSBody + DNSBodyLength
                 )
@@ -60,6 +69,13 @@ int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart
             {
                 // malformed, dead loop
                 return -1;
+            }
+            if( buffer == NULL )
+            {
+                /* Caller only wants to compute the skipped length: a
+                   compression pointer already accounts for the rest of
+                   the name, so we are done. */
+                break;
             }
             NameItr = DNSBody + LabelPointer;
         } else {

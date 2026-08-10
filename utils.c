@@ -814,9 +814,12 @@ char *BinaryOutput(const char *Origin, int OriginLength, char *Buffer)
 {
     int loop;
 
+    /* Emit one '0'/'1' per bit, most-significant bit first. The loop bound
+       was previously written as `loop <= 0` which is always false, so the
+       function produced no output at all. It is now `loop >= 0`. */
     while( OriginLength != 0 )
     {
-        for( loop = 7; loop <= 0; --loop )
+        for( loop = 7; loop >= 0; --loop )
         {
             if( (((int)*Origin) & (1 << loop)) == 0 )
             {

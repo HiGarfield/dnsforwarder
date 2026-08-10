@@ -46,6 +46,9 @@ UdpM_Sweep_Thread(UdpM *m)
     ModuleContext_Free(&(m->Context));
     EFFECTIVE_LOCK_DESTROY(m->Lock);
 
+    free((void *)(m->ServiceName));
+    m->ServiceName = NULL;
+
     m->SweepThread = NULL_THREAD;
 
     return 0;
@@ -359,10 +362,21 @@ int UdpM_Init(UdpM *m, const char *Services, BOOL Parallel)
         return -141;
     }
 
+    /* `Services` may point into storage the caller releases as soon as this
+       function returns (a group file holds its arguments in a temporary
+       StringChunk), whereas the module keeps reporting the name in its logs
+       for its whole lifetime. Own a private copy. */
+    m->ServiceName = strdup(Services);
+    if( m->ServiceName == NULL )
+    {
+        return -147;
+    }
+
     m->Departure = INVALID_SOCKET;
     if( StringList_Init(&Addresses, Services, ", ") != 0 )
     {
-        return -364;
+        ret = -364;
+        goto EXIT_0;
     }
 
     Addresses.TrimAll(&Addresses, "\t .");
@@ -421,7 +435,6 @@ int UdpM_Init(UdpM *m, const char *Services, BOOL Parallel)
 
     m->CountOfTimeout = 0;
 
-    m->ServiceName = Services;
     m->IsServer = 1;
 
     EFFECTIVE_LOCK_INIT(m->Lock);
@@ -439,9 +452,13 @@ EXIT_3:
     SafeFree(m->Parallels.addrs);
 EXIT_2:
     AddressList_Free(&(m->AddrList));
-    return ret;
+    goto EXIT_0;
 
 EXIT_1:
     Addresses.Free(&Addresses);
+
+EXIT_0:
+    free((void *)(m->ServiceName));
+    m->ServiceName = NULL;
     return ret;
 }

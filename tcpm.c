@@ -537,6 +537,11 @@ static int TcpM_Cleanup(TcpM *m)
     AddressList_Free(&(m->ServiceList));
     SafeFree(m->ServiceFamilies);
 
+    free((void *)(m->ServiceName));
+    m->ServiceName = NULL;
+    free((void *)(m->ProxyName));
+    m->ProxyName = NULL;
+
     m->WorkThread = NULL_THREAD;
 
     return 0;
@@ -796,9 +801,34 @@ int TcpM_Init(TcpM *m, const char *Services, BOOL Parallel, const char *SocksPro
         return -7;
     }
 
+    /* `Services` and `SocksProxies` may point into storage the caller
+       releases as soon as this function returns (a group file holds its
+       arguments in a temporary StringChunk), whereas the module keeps
+       reporting both names in its logs for its whole lifetime. Own private
+       copies. */
+    m->ServiceName = strdup(Services);
+    if( m->ServiceName == NULL )
+    {
+        return -8;
+    }
+
+    if( SocksProxies == NULL )
+    {
+        m->ProxyName = NULL;
+    } else {
+        m->ProxyName = strdup(SocksProxies);
+        if( m->ProxyName == NULL )
+        {
+            free((void *)(m->ServiceName));
+            m->ServiceName = NULL;
+            return -9;
+        }
+    }
+
     if( ModuleContext_Init(&(m->Context), SOCKET_CONTEXT_LENGTH) != 0 )
     {
-        return -12;
+        ret = -12;
+        goto EXIT_0;
     }
 
     if( SocketPuller_Init(&(m->Puller), sizeof(TcpContext)) != 0 )
@@ -934,8 +964,6 @@ int TcpM_Init(TcpM *m, const char *Services, BOOL Parallel, const char *SocksPro
 
     m->Send = TcpM_Send;
 
-    m->ServiceName = Services;
-    m->ProxyName = SocksProxies;
     m->Parallel = Parallel;
     m->IsServer = 1;
 
@@ -964,5 +992,10 @@ EXIT_2:
     m->Puller.Free(&(m->Puller));
 EXIT_1:
     ModuleContext_Free(&(m->Context));
+EXIT_0:
+    free((void *)(m->ServiceName));
+    m->ServiceName = NULL;
+    free((void *)(m->ProxyName));
+    m->ProxyName = NULL;
     return ret;
 }

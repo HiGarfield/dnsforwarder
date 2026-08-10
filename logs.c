@@ -177,15 +177,6 @@ void Log_Print(const char *Type, const char *format, ...)
         vprintf(format, ap);
     }
 
-    if( PrintConsole )
-    {
-        printf(Type == NULL ? "%s " : "%s [%s] ",
-               DateAndTime,
-               Type == NULL ? "" : Type
-               );
-        vprintf(format, ap);
-    }
-
     EFFECTIVE_LOCK_RELEASE(PrintLock);
 
     va_end(ap);

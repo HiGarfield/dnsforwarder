@@ -90,7 +90,9 @@ const char *DNSGetTypeName(uint16_t Num)
 
 static int DNSSECAlgorithm_Compare(const DNSSECAlgorithm *Key, const DNSSECAlgorithm *Element)
 {
-    return Key->Num - Element->Num;
+    /* Comparing by subtraction is signed-integer-overflow UB when the
+       difference exceeds INT_MAX; use the standard three-way form instead. */
+    return (Key->Num > Element->Num) - (Key->Num < Element->Num);
 }
 
 const char *DNSSECGetAlgorithmName(int Num)

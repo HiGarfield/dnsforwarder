@@ -423,6 +423,14 @@ Cht_Node *CacheHT_Get(CacheHT *h, const char *Key, const Cht_Node *Start, const 
         return Node;
 
     } else {
+        if( Start->Next < 0 )
+        {
+            /* Reached the end of the slot's linked list. Array_GetBySubscript
+               with a negative subscript would hand back an out-of-bounds
+               pointer (not NULL), which the caller would then dereference.
+               Signal the end of the chain explicitly. */
+            return NULL;
+        }
         Node = (Cht_Node *)Array_GetBySubscript(&(h->NodeChunk), Start->Next);
         if( Node == NULL )
             return NULL;

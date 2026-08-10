@@ -161,14 +161,20 @@ void Log_Print(const char *Type, const char *format, ...)
     {
         CheckLength();
 
-        CurrentLength += fprintf(LogFile,
-                                 Type == NULL ? "%s " : "%s [%s] ",
-                                 DateAndTime,
-                                 Type == NULL ? "" : Type
-                                 );
-        CurrentLength += vfprintf(LogFile, format, ap);
+        /* CheckLength() may have closed and failed to reopen the log file
+           (LogFile == NULL), so re-check before writing. Otherwise fprintf /
+           vfprintf would dereference a NULL FILE* and crash. */
+        if( LogFile != NULL )
+        {
+            CurrentLength += fprintf(LogFile,
+                                     Type == NULL ? "%s " : "%s [%s] ",
+                                     DateAndTime,
+                                     Type == NULL ? "" : Type
+                                     );
+            CurrentLength += vfprintf(LogFile, format, ap);
 
-        fflush(LogFile);
+            fflush(LogFile);
+        }
     }
 
     if( PrintConsole )

@@ -710,7 +710,11 @@ static int DNSCache_GetRawRecordsFromCache(__in    const char *Name,
                              Klass
                              );
 
-    if( KeyLength >= sizeof(Name_Type_Class) )
+    /* snprintf() returns a negative value on encoding failure. Casting that
+       to size_t for the comparison below would turn it into a huge unsigned
+       number and defeat this boundary check, letting a negative KeyLength
+       reach the cache lookup. Reject negatives explicitly first. */
+    if( KeyLength < 0 || KeyLength >= (int)sizeof(Name_Type_Class) )
     {
             return -609;
     }
@@ -784,7 +788,11 @@ static Cht_Node *DNSCache_GetCNameFromCache(__in char *Name,
                              1
                              );
 
-    if( KeyLength >= sizeof(Name_Type_Class) )
+    /* snprintf() returns a negative value on encoding failure. Casting that
+       to size_t for the comparison below would turn it into a huge unsigned
+       number and defeat this boundary check, letting a negative KeyLength
+       reach the cache lookup. Reject negatives explicitly first. */
+    if( KeyLength < 0 || KeyLength >= (int)sizeof(Name_Type_Class) )
     {
         return NULL;
     }

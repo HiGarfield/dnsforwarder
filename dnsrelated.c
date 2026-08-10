@@ -75,9 +75,10 @@ const char *DNS_TYPENAME_UNKNOWN = "UNKNOWN";
 
 const char *DNSGetTypeName(uint16_t Num)
 {
-    int loop;
+    size_t loop;
+    size_t count = sizeof(DNSTypeList) / sizeof(DNSTypeAndName);
 
-    for(loop = 0; loop < sizeof(DNSTypeList) / sizeof(DNSTypeAndName); ++loop)
+    for(loop = 0; loop < count; ++loop)
     {
         if( DNSTypeList[loop].Num == Num )
         {

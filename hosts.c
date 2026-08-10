@@ -264,12 +264,16 @@ Hosts_SocketLoop(void *Unused)
 
             BackTraceHeader = OuterHeader->Parent;
             BackTraceMsgCtx = (MsgContext *)BackTraceHeader;
-            DNSCopyQueryIdentifier(InnerHeader + 1, BackTraceHeader + 1);
             if( Context.GenAnswerHeaderAndRemove(&Context, BackTraceMsgCtx, InnerMsgCtx) != 0 )
             {
+                /* The inner (recursed) context is gone -- it was swept after
+                   its timeout while this outer response was in flight. Do not
+                   touch BackTraceHeader any further (it may have been reset /
+                   recycled); just drop the response. */
                 ERRORMSG("Fatal error 267.\n");
                 continue;
             }
+            DNSCopyQueryIdentifier(InnerHeader + 1, BackTraceHeader + 1);
 
             if( HostsUtils_CombineRecursedResponse((MsgContext *)InnerBuffer,
                                                    SOCKET_CONTEXT_LENGTH,

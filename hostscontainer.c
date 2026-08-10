@@ -196,7 +196,20 @@ PRIFUNC int HostsContainer_AddNode(HostsContainer   *Container,
                 BytesOfMetaInfo = IPI.CurrentBlockUsed(&IPI);
                 for( i = 0; (i + 1) * (int)sizeof(IpAddr) <= BytesOfMetaInfo; ++i, ++ipAddr )
                 {
-                    if( memcmp(ipAddr, Data, DataLength) == 0 )
+                    const IpAddr *NewIp = (const IpAddr *)Data;
+
+                    /* `Zone` is a pointer: comparing the whole struct with
+                       memcmp would compare pointer VALUES, which differ
+                       between a freshly parsed IpAddr (Zone on the caller's
+                       stack) and a stored one (Zone rebound into the
+                       persistent Container->Table). Compare the wire address
+                       and the Zone string content instead, so de-duplication
+                       of hosts entries actually works. */
+                    if( memcmp(ipAddr->Addr, NewIp->Addr, sizeof(ipAddr->Addr)) == 0 &&
+                        IpAddr_HasZone(ipAddr) == IpAddr_HasZone(NewIp) &&
+                        (!IpAddr_HasZone(ipAddr) ||
+                         strcmp(ipAddr->Zone, NewIp->Zone) == 0)
+                      )
                     {
                         goto OUT_SEARCH;
                     }

@@ -839,11 +839,20 @@ static int DNSCache_GetByQuestion(__inout DnsGenerator *g,
     {
         char    CName[253 + 1];
         Cht_Node *Node = NULL;
+        int     CNameDepth = 0;
 
         while( (Node = DNSCache_GetCNameFromCache(Name, CName, CurrentTime))
                != NULL
                )
         {
+            /* Guard against CNAME chains that loop (a->a or a->b->a),
+               which would otherwise spin forever while holding CacheLock. */
+            if( ++CNameDepth > 16 )
+            {
+                RWLock_UnRLock(CacheLock);
+                return -5;
+            }
+
             uint32_t NewTTL;
 
             if( IgnoreTTL == TRUE )

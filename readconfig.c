@@ -4,6 +4,7 @@
 #include "readconfig.h"
 #include "utils.h"
 #include "readline.h"
+#include "logs.h"
 
 #define DUP_STRING(i, s)    ((Info)->StrBuffer.Add(&((Info)->StrBuffer), (s), NULL))
 
@@ -249,7 +250,7 @@ static void ParseBoolean(ConfigOption *Option, const char *Value)
     }
 }
 
-static void ParseInt32(ConfigOption *Option, const char *Value)
+static void ParseInt32(ConfigOption *Option, const char *KeyName, const char *Value)
 {
     switch (Option->Strategy)
     {
@@ -276,7 +277,7 @@ static void ParseInt32(ConfigOption *Option, const char *Value)
                     Option->Status = STATUS_SPECIAL_VALUE;
                 } else {
                     ERRORMSG("Ignoring invalid integer value for %s: %s\n",
-                             Option->Name, Value);
+                             KeyName, Value);
                 }
             }
             break;
@@ -409,7 +410,7 @@ int ConfigRead(ConfigFileInfo *Info)
             switch( Option->Type )
             {
                 case TYPE_INT32:
-                    ParseInt32(Option, Prepending);
+                    ParseInt32(Option, KeyName, Prepending);
                     break;
 
                 case TYPE_BOOLEAN:
@@ -441,7 +442,7 @@ int ConfigRead(ConfigFileInfo *Info)
         switch( Option->Type )
         {
             case TYPE_INT32:
-                ParseInt32(Option, ValuePos);
+                ParseInt32(Option, KeyName, ValuePos);
                 break;
 
             case TYPE_BOOLEAN:

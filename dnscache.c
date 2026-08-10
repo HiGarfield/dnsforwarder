@@ -757,6 +757,7 @@ static int DNSCache_GetRawRecordsFromCache(__in    const char *Name,
 
 static Cht_Node *DNSCache_GetCNameFromCache(__in char *Name,
                                             __out char *Buffer,
+                                            __in int BufferLength,
                                             __in time_t CurrentTime
                                             )
 {
@@ -796,7 +797,22 @@ static Cht_Node *DNSCache_GetCNameFromCache(__in char *Name,
         }
 
         Node = iNode;
-        strcpy(Buffer, MapStart + Node->Offset + 1 + strlen(Name_Type_Class) + 1);
+
+        /* The CNAME target stored in the cache is an attacker-controllable,
+         * NUL-terminated string whose length is only bounded by the on-disk
+         * cache file. Copy it with an explicit upper bound so a corrupted or
+         * oversized cache entry cannot overflow `Buffer` (a 254-byte stack
+         * array at the call site). */
+        {
+            const char *Src = MapStart + Node->Offset + 1 + strlen(Name_Type_Class) + 1;
+            int j;
+
+            for( j = 0; j < BufferLength - 1 && Src[j] != '\0'; ++j )
+            {
+                Buffer[j] = Src[j];
+            }
+            Buffer[j] = '\0';
+        }
 
     } while( TRUE );
 
@@ -841,7 +857,7 @@ static int DNSCache_GetByQuestion(__inout DnsGenerator *g,
         Cht_Node *Node = NULL;
         int     CNameDepth = 0;
 
-        while( (Node = DNSCache_GetCNameFromCache(Name, CName, CurrentTime))
+        while( (Node = DNSCache_GetCNameFromCache(Name, CName, sizeof(CName), CurrentTime))
                != NULL
                )
         {

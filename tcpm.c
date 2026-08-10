@@ -291,9 +291,10 @@ static int TcpM_ProxyPreparation(SOCKET Sock,
 {
     char AddressInfos[4 + 1 + LENGTH_OF_IPV6_ADDRESS_ASCII + 2 + 1];
     char *AddressString = AddressInfos + 5;
-    char NumberOfCharacter;
+    int NumberOfCharacter;
     unsigned short Port;
     char RecvBuffer[16];
+    char TmpByte;
 
     DEBUG("Negotiating with TCP proxy ...\n");
 
@@ -364,8 +365,16 @@ static int TcpM_ProxyPreparation(SOCKET Sock,
             break;
 
         case 0x03:
-            TcpM_RecvWrapper(Sock, &NumberOfCharacter, 1);
-            NumberOfCharacter += 2;
+            /* The domain-name length octet is controlled by the (possibly
+             * malicious) upstream proxy. Read it as unsigned into a separate
+             * byte to avoid signed-char overflow/UB, and verify the read
+             * actually succeeded before using the value. */
+            if( TcpM_RecvWrapper(Sock, &TmpByte, 1) != 1 )
+            {
+                ERRORMSG("Proxy Cannot communicate with TCP proxy.\n");
+                return -12;
+            }
+            NumberOfCharacter = (int)(unsigned char)TmpByte + 2;
             break;
 
         case 0x04:

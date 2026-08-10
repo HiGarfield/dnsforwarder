@@ -37,6 +37,10 @@
 /* Common */
 char *DNSJumpOverName(char *NameStart);
 
+/* Bounded variant of DNSJumpOverName(): returns NULL instead of walking past
+   the end of the message when the encoded name is truncated or malformed. */
+char *DNSJumpOverNameSafe(const char *DNSBody, int DNSBodyLength, char *NameStart);
+
 int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart, char *buffer, int BufferLength);
 
 int DNSGetHostNameLength(const char *DNSBody, int DNSBodyLength, const char *NameStart);

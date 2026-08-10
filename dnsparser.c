@@ -7,6 +7,47 @@ char *DNSJumpOverName(char *NameStart)
     return NameStart + DNSGetHostName(NULL, INT_MAX, NameStart, NULL, 0);
 }
 
+/* Bounded counterpart of DNSJumpOverName().
+ *
+ * DNSJumpOverName() passes DNSBody == NULL and DNSBodyLength == INT_MAX,
+ * which switches off every boundary check inside DNSGetHostName(): the only
+ * thing that stops the walk is the 255-octet name cap or a terminating zero
+ * octet. A truncated message whose name runs right up to the last byte
+ * therefore makes the scan read past the end of the packet.
+ *
+ * Callers that know where the message ends must use this function instead.
+ * It returns NULL when the name is malformed or would leave the message.
+ */
+char *DNSJumpOverNameSafe(const char *DNSBody, int DNSBodyLength, char *NameStart)
+{
+    int Length;
+
+    if( DNSBody == NULL || NameStart == NULL || DNSBodyLength <= 0 )
+    {
+        return NULL;
+    }
+
+    if( NameStart < DNSBody || NameStart >= DNSBody + DNSBodyLength )
+    {
+        return NULL;
+    }
+
+    Length = DNSGetHostName(DNSBody, DNSBodyLength, NameStart, NULL, 0);
+    if( Length < 0 )
+    {
+        return NULL;
+    }
+
+    /* The byte right after the name may legitimately be the end of the
+       message, hence `>' and not `>='. */
+    if( NameStart + Length > DNSBody + DNSBodyLength )
+    {
+        return NULL;
+    }
+
+    return NameStart + Length;
+}
+
 /* Labels length returned */
 int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart, char *buffer, int BufferLength)
 {
@@ -93,8 +134,16 @@ int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart
             }
             NameItr = DNSBody + LabelPointer;
         } else {
+            /* The label occupies the length octet plus LabelCount data
+               octets, and after skipping them the loop reads one more octet
+               (the next label's length, or the terminating zero) at the end
+               of this iteration. All of NameItr[0 .. 1 + LabelCount] must
+               therefore be inside the message.
+               The old test used `NameItr + LabelCount', which omitted both
+               the length octet and that trailing read and so allowed a read
+               up to two bytes past the end of a truncated message. */
             if( DNSBody != NULL &&
-                NameItr + LabelCount > DNSBody + DNSBodyLength
+                NameItr + 1 + LabelCount > DNSBody + DNSBodyLength - 1
                 )
             {
                 return -1;
@@ -406,6 +455,17 @@ int DnsSimpleParser_Init(DnsSimpleParser *p,
         return -1;
     }
 
+    /* For TCP the first two octets are the length prefix and are stripped
+       below, so the *remaining* bytes - not the raw ones already checked
+       above - must still hold a full header. Without this second check a
+       12..13 byte TCP buffer would produce a RawDnsLength of 10 or 11 and
+       every subsequent bounds test would be computed against a body that is
+       shorter than the header the parser unconditionally reads. */
+    if( IsTcp && Length - 2 < DNS_HEADER_LENGTH )
+    {
+        return -1;
+    }
+
     if( IsTcp )
     {
         p->RawDns = RawDns + 2;
@@ -521,8 +581,12 @@ static char *DnsSimpleParserIterator_Next(DnsSimpleParserIterator *i)
         return NULL;
     }
 
+    /* `>=' rather than `>': a record that starts exactly at the end of the
+       buffer has no bytes at all, and the accessors below unconditionally
+       read the 2-byte type and the 2-byte class after the name. The old `>'
+       accepted that position and read past the end of the packet. */
     if( (i->RecordPosition > i->AllRecordCount) ||
-        (i->CurrentPosition - i->Parser->RawDns > i->Parser->RawDnsLength)
+        (i->CurrentPosition - i->Parser->RawDns >= i->Parser->RawDnsLength)
       )
     {
         i->CurrentPosition = NULL;
@@ -532,6 +596,27 @@ static char *DnsSimpleParserIterator_Next(DnsSimpleParserIterator *i)
 
     /* Update record informations */
     i->Purpose =  DnsSimpleParserIterator_DeterminePurpose(i, i->RecordPosition);
+
+    /* DNSGetRecordType()/DNSGetRecordClass() jump over the name and then read
+       4 bytes (type + class). Verify that those bytes, and for a resource
+       record the TTL and RDLENGTH that follow, are really inside the message
+       before touching them. */
+    {
+        char *AfterName = DNSJumpOverNameSafe(i->Parser->RawDns,
+                                              i->Parser->RawDnsLength,
+                                              i->CurrentPosition);
+        const char *End = i->Parser->RawDns + i->Parser->RawDnsLength;
+        int NeedAfterName =
+            i->Purpose == DNS_RECORD_PURPOSE_QUESTION ? 4 : 10;
+
+        if( AfterName == NULL || End - AfterName < NeedAfterName )
+        {
+            i->CurrentPosition = NULL;
+            i->RecordPosition = 0;
+            return NULL;
+        }
+    }
+
     i->Type = DNSGetRecordType(i->CurrentPosition);
     i->Klass = DNSGetRecordClass(i->CurrentPosition);
 

@@ -333,12 +333,29 @@ static int DaemonInit(void)
 static int GetDefaultConfigureFile(char *out, int OutLength)
 {
 #ifdef _WIN32
+    static const char Suffix[] = "\\dnsforwarder.config";
+#else /* _WIN32 */
+    static const char Suffix[] = "/config";
+#endif /* _WIN32 */
+    int n;
+
+    out[0] = '\0';
+#ifdef _WIN32
     GetModulePath(out, OutLength);
-    strcat(out, "\\dnsforwarder.config");
 #else /* _WIN32 */
     GetConfigDirectory(out);
-    strcat(out, "/config");
 #endif /* _WIN32 */
+
+    n = (int)strlen(out);
+    if( n < 0 || n + (int)sizeof(Suffix) > OutLength )
+    {
+        /* Not enough room for the suffix; leave out empty and report failure
+           instead of overrunning the caller's buffer. */
+        out[0] = '\0';
+        return -1;
+    }
+
+    memcpy(out + n, Suffix, sizeof(Suffix));
     return 0;
 }
 

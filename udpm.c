@@ -335,6 +335,12 @@ static int UdpM_Send(UdpM *m,
             /** TODO: Error handlings */
 
         }
+    } else {
+        /* m->Departure is not ready yet: the Context we registered above would
+           otherwise leak and be counted as an unanswered query forever. Roll it
+           back and report the failure. */
+        m->Context.Del(&(m->Context), (MsgContext *)Buffer);
+        ret = 0;
     }
 
     EFFECTIVE_LOCK_RELEASE(m->Lock);

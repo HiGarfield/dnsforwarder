@@ -845,6 +845,14 @@ int MMgr_Send(const char *Buffer, int BufferLength)
 
     RWLock_RdLock(ModulesLock);
 
+    /* CurModuleMap stays NULL if Modules_Load failed (e.g. bad config) and
+     * the front-end threads are already running; dereferencing it would crash. */
+    if( CurModuleMap == NULL )
+    {
+        RWLock_UnRLock(ModulesLock);
+        return -190;
+    }
+
     if( StringChunk_Domain_Match_WildCardRandom(CurModuleMap->Distributor,
                                                  h->Domain,
                                                  &(h->HashValue),

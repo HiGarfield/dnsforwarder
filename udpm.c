@@ -277,8 +277,11 @@ static int UdpM_Send(UdpM *m,
         EFFECTIVE_LOCK_RELEASE(m->Lock);
         return -242;
     }
-    EFFECTIVE_LOCK_RELEASE(m->Lock);
 
+    /* Keep m->Lock held across the send: m->Departure / m->AddrList /
+     * m->Parallels are protected by m->Lock and may be torn down by the
+     * UdpM_Works reconfiguration thread. Using them outside the lock is a
+     * TOCTOU race (sendto on a closed/changed socket). */
     if( m->Departure != INVALID_SOCKET )
     {
         if( m->Parallels.addrs != NULL )
@@ -312,6 +315,10 @@ static int UdpM_Send(UdpM *m,
             if( a == NULL )
             {
                 ERRORMSG("Fatal error 205.\n");
+                /* Roll back the Context entry we just registered, otherwise the
+                 * stale context leaks and is counted as an unanswered query. */
+                m->Context.Del(&(m->Context), (MsgContext *)Buffer);
+                EFFECTIVE_LOCK_RELEASE(m->Lock);
                 return -277;
             }
 
@@ -330,7 +337,7 @@ static int UdpM_Send(UdpM *m,
         }
     }
 
-    /*EFFECTIVE_LOCK_RELEASE(m->Lock);*/
+    EFFECTIVE_LOCK_RELEASE(m->Lock);
     return !ret;
 }
 

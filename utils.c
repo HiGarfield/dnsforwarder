@@ -977,7 +977,11 @@ int GetAddressLength(sa_family_t Family)
     switch( Family )
     {
         case AF_INET:
-            return sizeof(struct sockaddr);
+            /* Must return the size of the concrete address struct, not the
+             * generic `struct sockaddr' (which is only 16 bytes by coincidence
+             * on Linux). The result is used as the byte count for memcpy() and
+             * connect(), so it must match the actual wire address length. */
+            return sizeof(struct sockaddr_in);
             break;
 
         case AF_INET6:
@@ -985,7 +989,12 @@ int GetAddressLength(sa_family_t Family)
             break;
 
         default:
-            return -1;
+            /* Unknown family: do not return -1, because callers feed the value
+             * straight into memcpy()/connect() as a size_t and a negative
+             * result would wrap into a huge copy and read out of bounds.
+             * Fall back to the largest possible address size so the copy is
+             * never larger than the destination union (sockaddr_in/sockaddr_in6). */
+            return sizeof(struct sockaddr_storage);
             break;
     }
 }

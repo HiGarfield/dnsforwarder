@@ -180,6 +180,9 @@ void SocketPullers_FreeWithoutClose(SocketPuller **Pullers)
     {
         (*Pullers)->FreeWithoutClose(*Pullers);
     }
+    /* Each (*Pullers) points into a single contiguous Buffer array allocated
+       in SocketPullers_Init, whose base address is Pullers[0]. Free it once. */
+    SafeFree(p[0]);
     SafeFree(p);
 }
 
@@ -192,5 +195,6 @@ void SocketPullers_Free(SocketPuller **Pullers)
     {
         (*Pullers)->Free(*Pullers);
     }
+    SafeFree(p[0]);
     SafeFree(p);
 }

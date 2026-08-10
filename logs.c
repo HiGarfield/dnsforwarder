@@ -163,8 +163,18 @@ void Log_Print(const char *Type, const char *format, ...)
         CurrentLength += vfprintf(LogFile, format, ap);
 
         fflush(LogFile);
+    }
 
-        va_start(ap, format);
+    if( PrintConsole )
+    {
+        /* `ap` is already initialised by the va_start above and must only be
+           ended once. Re-initialising it here is undefined behaviour and can
+           corrupt the calling frame, so we reuse the same `ap`. */
+        printf(Type == NULL ? "%s " : "%s [%s] ",
+               DateAndTime,
+               Type == NULL ? "" : Type
+               );
+        vprintf(format, ap);
     }
 
     if( PrintConsole )

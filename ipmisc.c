@@ -26,6 +26,10 @@ static int IPMisc_AddSubstituteFromString(IPMisc *m,
     {   /* IPv6 */
         char    IpSubstituter[16];
 
+        /* IPv6AddressToNum() zeroes the whole buffer before parsing, so a
+           partially parsed literal yields a well-defined (if truncated)
+           address rather than stack garbage.  It also returns 0 for the
+           perfectly valid "::", hence no result check here. */
         IPv6AddressToNum(Substituter, IpSubstituter);
 
         return IpChunk_Add(&(m->c),
@@ -38,7 +42,11 @@ static int IPMisc_AddSubstituteFromString(IPMisc *m,
         /* IPv4 */
         char    IpSubstituter[4];
 
-        IPv4AddressToNum(Substituter, IpSubstituter);
+        if( IPv4AddressToNum(Substituter, IpSubstituter) <= 0 )
+        {
+            ERRORMSG("Invalid IPv4 substitute address: %s\n", Substituter);
+            return -1;
+        }
 
         return IpChunk_Add(&(m->c),
                              Ip,

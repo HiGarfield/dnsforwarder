@@ -96,7 +96,7 @@ BOOL FileIsReadable(const char *File);
 
 int GetFileSizePortable(const char *File);
 
-int GetTextFileContent(const char *File, char *Content);
+int GetTextFileContent(const char *File, char *Content, size_t MaxLength);
 
 BOOL IsPrime(int n);
 

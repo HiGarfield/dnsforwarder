@@ -735,9 +735,10 @@ int GetFileSizePortable(const char *File)
     return s;
 }
 
-int GetTextFileContent(const char *File, char *Content)
+int GetTextFileContent(const char *File, char *Content, size_t MaxLength)
 {
     FILE *fp = fopen(File, "rb");
+    size_t written = 0;
     int c = 0;
 
     if( fp == NULL )
@@ -745,10 +746,15 @@ int GetTextFileContent(const char *File, char *Content)
         return -1;
     }
 
-    while( (c = fgetc(fp)) != EOF )
+    /* Never write past Content[MaxLength - 1] and always NUL-terminate,
+       otherwise the caller's strstr()/string handling would run off the
+       end of the buffer. */
+    while( written + 1 < MaxLength && (c = fgetc(fp)) != EOF )
     {
-        *Content++ = c;
+        Content[written++] = (char)c;
     }
+
+    Content[written] = '\0';
 
     fclose(fp);
 
@@ -1016,6 +1022,10 @@ int ExpandPath(char *String, int BufferLength)
 
 int ExpandPathTo(char *Buffer, int BufferLength, const char *String)
 {
+    if( BufferLength <= 1 )
+    {
+        return -1;
+    }
     strncpy(Buffer, String, BufferLength - 1);
     Buffer[BufferLength - 1] = 0;
     ReplaceStr(Buffer, "\"", "");

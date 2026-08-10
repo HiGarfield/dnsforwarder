@@ -71,7 +71,7 @@ static int GetPreAndPost(ConfigFileInfo *ConfigInfo)
 
     memset(FileContent, 0, FileSize + 1);
 
-    if( GetTextFileContent(TemplateFile, FileContent) != 0 )
+    if( GetTextFileContent(TemplateFile, FileContent, FileSize + 1) != 0 )
     {
         goto EXIT;
     }

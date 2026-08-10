@@ -27,23 +27,27 @@ int CacheTtlCrtl_Add(CacheTtlCtrl *c, const char *Domain, int State, uint32_t Co
 
 int CacheTtlCrtl_Add_From_String(CacheTtlCtrl *c, const char *Rule)
 {
-    char    Domain[128], Cmd[16], Arg[64];
+    char    Domain[128] = {0}, Cmd[16] = {0}, Arg[64] = {0};
     int     State;
     uint32_t Coefficient = 0;
     uint32_t Increment = 0;
     int     Infection = TTL_CTRL_INFECTION_AGGRESSIVLY;
 
-    sscanf(Rule, "%127s%15s%63s", Domain, Cmd, Arg);
+    if( sscanf(Rule, "%127s%15s%63s", Domain, Cmd, Arg) < 2 )
+    {
+        ERRORMSG("Invalid `CacheControl' option : %s\n", Rule);
+        return -1;
+    }
 
     if( Cmd[0] == '$' )
     {
         if( Cmd[1] == '$' )
         {
             Infection = TTL_CTRL_INFECTION_NONE;
-            memmove(Cmd, Cmd + 2, sizeof(Cmd) - 2);
+            memmove(Cmd, Cmd + 2, strlen(Cmd + 2) + 1);
         } else {
             Infection = TTL_CTRL_INFECTION_PASSIVLY;
-            memmove(Cmd, Cmd + 1, sizeof(Cmd) - 1);
+            memmove(Cmd, Cmd + 1, strlen(Cmd + 1) + 1);
         }
     } else {
         Infection = TTL_CTRL_INFECTION_AGGRESSIVLY;
@@ -60,11 +64,19 @@ int CacheTtlCrtl_Add_From_String(CacheTtlCtrl *c, const char *Rule)
     {
         State = TTL_STATE_FIXED;
         Coefficient = 0;
-        sscanf(Arg, "%u", &Increment);
+        if( sscanf(Arg, "%u", &Increment) != 1 )
+        {
+            ERRORMSG("Invalid `CacheControl' fixed ttl : %s\n", Rule);
+            return -1;
+        }
     } else if( IS_STATE("vari") )
     {
         State = TTL_STATE_VARIABLE;
-        sscanf(Arg, "%ux+%u", &Coefficient, &Increment);
+        if( sscanf(Arg, "%u%*[xX]%*[+]%u", &Coefficient, &Increment) != 2 )
+        {
+            ERRORMSG("Invalid `CacheControl' variable arg : %s\n", Rule);
+            return -1;
+        }
     } else {
         ERRORMSG("Invalid `CacheControl' option : %s\n", Rule);
         return -1;

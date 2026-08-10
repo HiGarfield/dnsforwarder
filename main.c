@@ -246,6 +246,12 @@ static int DaemonInit(void)
 
     CmdLine = GoToNextNonSpace(CmdLine);
 
+    if( CmdLine == NULL )
+    {
+        /* Command line is empty / all whitespace: nothing to relaunch. */
+        return -240;
+    }
+
     if( CmdLine[0] != '\"' && CmdLine[1] != ':' )
     {
         /* CmdLine doesn't contain module name portion */

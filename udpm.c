@@ -188,16 +188,23 @@ UdpM_Works(UdpM *m)
 
         m->CountOfTimeout = 0;
 
-        /* Fill IHeader */
-        IHeader_Fill(Header,
-                     FALSE,
-                     Entity,
-                     RecvState,
-                     NULL,
-                     INVALID_SOCKET,
-                     AF_UNSPEC,
-                     NULL
-                     );
+        /* Fill IHeader. Start from a clean slate so that, if IHeader_Fill
+           bails out early on a malformed packet (e.g. < 12 bytes), the
+           downstream code never reads uninitialized stack bytes left in
+           ReceiveBuffer. Skip the packet entirely when parsing fails. */
+        memset(Header, 0, sizeof(IHeader));
+        if( IHeader_Fill(Header,
+                         FALSE,
+                         Entity,
+                         RecvState,
+                         NULL,
+                         INVALID_SOCKET,
+                         AF_UNSPEC,
+                         NULL
+                         ) != 0 )
+        {
+            continue;
+        }
 
         switch( IPMiscMapping_Process(MsgCtx) )
         {

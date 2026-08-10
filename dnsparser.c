@@ -189,7 +189,11 @@ char *GetAllAnswers(char *DNSBody, int DNSBodyLength, char *Buffer, int BufferLe
 
     if( ANACount == 0 )
     {
-        strcpy(BufferItr, "   Nothing.\n");
+        if( BufferLength > (int)sizeof("   Nothing.\n") )
+        {
+            strcpy(BufferItr, "   Nothing.\n");
+        }
+        return Buffer;
     }
 
     i.GotoAnswers(&i);
@@ -201,11 +205,18 @@ char *GetAllAnswers(char *DNSBody, int DNSBodyLength, char *Buffer, int BufferLe
     {
         if( i.TextifyData(&i, "   %t: %v\n", BufferItr, BufferLeft) <= 0 )
         {
-            sprintf(BufferItr, "   And %d More ...\n", ANACount);
+            snprintf(BufferItr,
+                     (size_t)(BufferLength - (BufferItr - Buffer)),
+                     "   And %d More ...\n", ANACount);
 
             break;
         } else {
             int StageLength = strlen(BufferItr);
+
+            if( StageLength >= BufferLeft )
+            {
+                break;
+            }
 
             BufferItr += StageLength;
             BufferLeft -= StageLength;

@@ -358,7 +358,14 @@ static int IpMiscMapping_Load(void)
     return 0;
 
 EXIT_2:
-    IPMisc_Free(CurrIpMiscMapping);
+    /* The load failed partway through: discard the half-built mapping we
+       allocated locally. Do NOT free CurrIpMiscMapping here, it is still the
+       live mapping in use by concurrent readers (freeing it would be a
+       use-after-free). */
+    IPMisc_Free(IpMiscMapping);
+    SafeFree(IpMiscMapping);
+    return ret;
+
 EXIT_1:
     SafeFree(IpMiscMapping);
 

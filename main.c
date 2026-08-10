@@ -252,9 +252,9 @@ static int DaemonInit(void)
         return -240;
     }
 
-    if( CmdLine[0] != '\"' && CmdLine[1] != ':' )
+    if( !(CmdLine[0] == '\"' && CmdLine[1] == ':') )
     {
-        /* CmdLine doesn't contain module name portion */
+        /* CmdLine doesn't contain an absolute "X:\..." module name portion */
 
         char ModuleName[320];
 

@@ -147,7 +147,7 @@ int GetModulePath(char *Buffer, int BufferLength)
 int GetErrorMsg(int Code, char *Buffer, int BufferLength)
 {
 
-    if( BufferLength < 0 || Buffer == NULL )
+    if( BufferLength <= 0 || Buffer == NULL )
     {
         return 0;
     }
@@ -173,12 +173,23 @@ char *GetCurDateAndTime(char *Buffer, int BufferLength)
     time_t              rawtime;
     struct tm           *timeinfo;
 
+    if( Buffer == NULL || BufferLength <= 0 )
+    {
+        return NULL;
+    }
+
     *Buffer = '\0';
     *(Buffer + BufferLength - 1) = '\0';
 
     time(&rawtime);
 
     timeinfo = localtime(&rawtime);
+    if( timeinfo == NULL )
+    {
+        /* localtime failed; leave the buffer as an empty string. */
+        *Buffer = '\0';
+        return Buffer;
+    }
 
     strftime(Buffer, BufferLength - 1 ,"%Y/%m/%d %X", timeinfo);
 
@@ -800,12 +811,23 @@ int FindNextPrime(int Current)
 
     Current = ROUND_UP(Current, 2) + 1;
 
+    if( Current < 3 )
+    {
+        Current = 3;
+    }
+
     do
     {
         if( IsPrime(Current) )
         {
             return Current;
         } else {
+            /* Guard against signed overflow (which wraps to a negative value
+               and would make IsPrime loop forever / invoke UB on sqrt). */
+            if( Current > INT_MAX - 2 )
+            {
+                return -1;
+            }
             Current += 2;
         }
 
@@ -1366,7 +1388,7 @@ SOCKET TryBindLocal(BOOL Ipv6, int StartPort, Address_Type *Address)
     return ret;
 }
 
-char *SplitNameAndValue(const char *Line, const char *Delimiters)
+char *SplitNameAndValue(char *Line, const char *Delimiters)
 {
     char *Delimiter = strpbrk(Line, Delimiters);
 

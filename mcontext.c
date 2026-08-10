@@ -131,9 +131,20 @@ static int ModuleContextCompare(const void *_1, const void *_2)
 
     if( Id_1 != Id_2 )
     {
-        return Id_1 - Id_2;
+        return (Id_1 < Id_2) ? -1 : 1;
     } else {
-        return One->HashValue - Two->HashValue;
+        /* HashValue is uint32_t; a plain subtraction wraps around for large
+           deltas and reverses the sign, breaking the strict-weak-ordering a
+           BST relies on (ModuleContext_Find would then misplace/lose entries,
+           discarding matching responses). Compare explicitly instead. */
+        if( One->HashValue < Two->HashValue )
+        {
+            return -1;
+        } else if( One->HashValue > Two->HashValue ) {
+            return 1;
+        } else {
+            return 0;
+        }
     }
 }
 

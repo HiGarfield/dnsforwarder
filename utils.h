@@ -163,7 +163,7 @@ void ClearTCPSocketBuffer(SOCKET Sock, int Length);
 
 SOCKET TryBindLocal(BOOL Ipv6, int StartPort, Address_Type *Address);
 
-char *SplitNameAndValue(const char *Line, const char *Delimiters);
+char *SplitNameAndValue(char *Line, const char *Delimiters);
 
 char *GetPathPart(char *FullPath);
 

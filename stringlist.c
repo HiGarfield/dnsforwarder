@@ -105,22 +105,29 @@ static int StringList_AppendLast(StringList *s,
     }
 
     Used = i.CurrentBlockUsed(&i);
-    for( l = b + Used - 2; l > b; --l )
-    {
-        if( *l == '\0' )
-        {
-            ++l;
-            break;
-        }
-    }
 
-    if( l <= b )
+    /* Find the start of the last string in the block. A valid block ends
+       with a terminated-0, so scan backwards for the previous NUL that
+       terminates the second-to-last string. Guard against empty or
+       single-byte blocks to avoid forming out-of-bounds pointers. */
+    if( Used < 1 )
     {
         l = b;
+        LastHalfLength = 0;
+    } else {
+        char *Tail;
+
+        l = b + Used - 1; /* points at the terminating-0 of the block */
+        Tail = l;
+        while( Tail > b && *(Tail - 1) != '\0' )
+        {
+            --Tail;
+        }
+        l = Tail; /* start of the last string */
+        LastHalfLength = Used - (l - b); /* Including terminated-0 */
     }
 
     StrLength = strlen(str) + 1; /* Including terminated-0 */
-    LastHalfLength = Used - (l - b); /* Including terminated-0 */
     NewStr = SafeMalloc(StrLength + LastHalfLength - 1);
     if( NewStr == NULL )
     {
@@ -170,6 +177,10 @@ static const char **StringList_ToCharPtrArray(StringList *s)
         ret[Index] = StringDup(ci);
         if( ret[Index] == NULL )
         {
+            while( --Index >= 0 )
+            {
+                SafeFree((void *)ret[Index]);
+            }
             SafeFree(ret);
             return NULL;
         }

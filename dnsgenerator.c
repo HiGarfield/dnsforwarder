@@ -883,7 +883,18 @@ static int DnsGenerator_Generate(DnsGenerator *g,
         break;
 
     case DNS_TYPE_MX:
-        Ret = g->MX(g, Name, GET_16_BIT_U_INT(Data), Data + 2, Ttl);
+        /* The MX RDATA is "Preference (2 bytes) + Exchange (domain name)".
+           DataLength must be at least 2 bytes, otherwise reading the
+           preference and skipping past it walks off the end of the buffer
+           (out-of-bounds read of network-supplied cache data). */
+        if( DataLength < 2 )
+        {
+            Ret = -257;
+        }
+        else
+        {
+            Ret = g->MX(g, Name, GET_16_BIT_U_INT(Data), Data + 2, Ttl);
+        }
         break;
 
     default:

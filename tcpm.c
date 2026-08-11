@@ -46,7 +46,7 @@ static void SweepWorks(MsgContext *MsgCtx, int Number, TcpM *Module)
     }
 }
 
-static void TcpM_Connect_Recycle(SocketPuller *Puller, SocketPuller **Backups)
+static void TcpM_Connect_Recycle(SocketPuller *Puller, SocketPuller **Backups, int NumOfBackups)
 {
     SocketPuller *p;
     TcpContext *TcpCtx;
@@ -68,6 +68,21 @@ static void TcpM_Connect_Recycle(SocketPuller *Puller, SocketPuller **Backups)
             break;
         } else {
             Puller->Del(Puller, s);
+
+            /* The recycled context carries the index it was created with,
+               which lives in the same numbering space as Backups (server or
+               proxy).  Guard the index: an out-of-range value would be an
+               out-of-bounds dereference of Backups.  Drop the socket rather
+               than indexing past the array. */
+            if( TcpCtx->ServerIndex < 0 || TcpCtx->ServerIndex >= NumOfBackups )
+            {
+                WARNING("Recycled socket has out-of-range ServerIndex %d (max %d), closing.\n",
+                        TcpCtx->ServerIndex, NumOfBackups);
+                CLOSE_SOCKET(s);
+                SafeFree(TcpCtx);
+                continue;
+            }
+
             DEBUG("Recycled socket for Pullers[%d]\n", TcpCtx->ServerIndex);
             p = Backups[TcpCtx->ServerIndex];
             p->Add(p, s, TcpCtx, sizeof(TcpContext));
@@ -175,7 +190,7 @@ static int TcpM_Connect(TcpM *m, int ServerIndex, BOOL IsProxy)
         NumOfServers = AddressList_GetNumberOfAddresses(&(m->SocksProxyList));
     }
 
-    TcpM_Connect_Recycle(Puller, Pullers);
+    TcpM_Connect_Recycle(Puller, Pullers, NumOfServers);
 
     srand(time(NULL));
     Shift = rand();

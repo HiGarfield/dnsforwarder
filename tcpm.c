@@ -551,7 +551,17 @@ PUBFUNC int TcpM_Send(TcpM *m,
        upstream in m->ServiceList and send the (length-prefixed) payload. */
     (void)BufferLength;
 
-    return TcpM_Send_Actual(m, (MsgContext *)Buffer, -1) <= 0;
+    /* TcpM_Send_Actual mutates shared module state (m->Puller, m->QueryPuller,
+       m->ServiceList, m->Context).  It can be called concurrently from this
+       MMgr_Send entry (a frontend thread) and from TcpM_Works (the worker
+       thread); SocketPuller is documented non-thread-safe, so serialize the
+       call with the module lifecycle lock to avoid corrupting the puller's
+       fd_set / internal arrays. */
+    EFFECTIVE_LOCK_GET(m->Lock);
+    int r = TcpM_Send_Actual(m, (MsgContext *)Buffer, -1);
+    EFFECTIVE_LOCK_RELEASE(m->Lock);
+
+    return r <= 0;
 }
 
 static int TcpM_Cleanup(TcpM *m)
@@ -685,7 +695,11 @@ TcpM_Works(TcpM *m)
                     continue;
                 }
 
+                /* Serialize with TcpM_Send (MMgr_Send entry): TcpM_Send_Actual
+                   mutates the shared pullers / service list. */
+                EFFECTIVE_LOCK_GET(m->Lock);
                 TcpM_Send_Actual(m, MsgCtxStored, -1);
+                EFFECTIVE_LOCK_RELEASE(m->Lock);
             }
 
             p->Del(p, s);

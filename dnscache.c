@@ -110,8 +110,12 @@ static void DNSCacheTTLCountdown_Task(void *Unused, void *Unused2)
     {
         (*CacheEnd) = sizeof(struct _Header);
     } else {
-        Node = (Cht_Node *)Array_GetBySubscript(ChunkList, ChunkList->Used - 1);
-        (*CacheEnd) = Node->Offset + Node->Length;
+        /* Do NOT roll CacheEnd back to the tail node's end: the node at
+           ChunkList->Used - 1 may be a reused (low-offset) entry from the
+           free 2D-list, and lowering CacheEnd would let a subsequent new
+           allocation overwrite still-valid records living at higher
+           offsets.  CacheEnd is the high-water mark for new nodes; the
+           free list services reuse independently, so keep it monotonic. */
     }
 
     RWLock_UnWLock(CacheLock);

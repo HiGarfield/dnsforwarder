@@ -127,6 +127,14 @@ int StableBuffer_Init(StableBuffer *s)
     s->Clear = Clear;
     s->Free = Free;
 
+    /* Zero the MetaInfo Array up front.  Array_Init() may fail (e.g. under
+       memory pressure) and leave MetaInfo uninitialised; callers such as
+       Modules_Free() then run through StableBuffer_Free() -> Clear() ->
+       Array_GetUsed()/Array_Free() on that garbage, dereferencing wild
+       pointers and crashing.  A zeroed Array (Data = NULL, Used = 0) makes
+       those paths safe no-ops, so a failed init can be cleaned up cleanly. */
+    memset(&(s->MetaInfo), 0, sizeof(s->MetaInfo));
+
     return Array_Init(&(s->MetaInfo),
                       sizeof(StableBuffer_MetaInfo), 0, FALSE, NULL);
 }

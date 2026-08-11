@@ -11,6 +11,15 @@ PUBFUNC int SocketPuller_Add(SocketPuller *p,
         return -11;
     }
 
+    /* fd_set is a fixed-size bitmask bounded by FD_SETSIZE; FD_SET performs no
+       range check of its own, so a descriptor >= FD_SETSIZE would index past
+       the bitmap and corrupt adjacent heap memory.  select() itself is limited
+       to FD_SETSIZE fds, so reject oversized descriptors up front. */
+    if( s >= FD_SETSIZE )
+    {
+        return -19;
+    }
+
     /* Defensive validation of the user-supplied association.  DataLength is
        later memcpy'd by the backing BST, so a bogus length (e.g. 0 when a
        payload was actually provided, or a negative value) would read or write

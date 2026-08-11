@@ -17,6 +17,11 @@ static const char   *File = NULL;
 static RWLock       HostsLock = NULL_RWLOCK;
 static volatile HostsContainer  *MainDynamicContainer = NULL;
 
+/* Set by DynamicHosts_Cleanup() (atexit) so the detached reload thread
+   (GetHostsFromInternet_Thread) stops touching HostsLock / the container
+   while cleanup is tearing them down. */
+static volatile BOOL    ToExit = FALSE;
+
 /* Arguments for updating  */
 static int          HostsRetryInterval;
 static char         Script[SIZE_OF_PATH_BUFFER] = "";
@@ -33,6 +38,8 @@ static void DynamicHosts_ContainerCleanup(HostsContainer *DynamicContainer)
 
 static void DynamicHosts_Cleanup(void)
 {
+    ToExit = TRUE;
+
     DynamicHosts_ContainerCleanup((HostsContainer *)MainDynamicContainer);
     MainDynamicContainer = NULL;
     FreeCharPtrArray(HostsURLs);
@@ -121,6 +128,12 @@ static void GetHostsFromInternet_Thread(void *Unused1, void *Unused2)
 {
 #if !defined(TEST_RELOADING)
     int         DownloadState;
+
+    /* Bail out if atexit cleanup is tearing down HostsLock / the container. */
+    if( ToExit )
+    {
+        return;
+    }
 
     if( HostsURLs == NULL || HostsURLs[0] == NULL )
     {

@@ -90,7 +90,7 @@ int IPv6AddressToAsc(const void *Address, void *Buffer);
 
 int IPv4AddressToAsc(const void *Address, void *Buffer);
 
-int GetConfigDirectory(char *out);
+int GetConfigDirectory(char *out, size_t OutLength);
 
 BOOL FileIsReadable(const char *File);
 

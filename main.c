@@ -349,7 +349,7 @@ static int GetDefaultConfigureFile(char *out, int OutLength)
 #ifdef _WIN32
     GetModulePath(out, OutLength);
 #else /* _WIN32 */
-    GetConfigDirectory(out);
+    GetConfigDirectory(out, OutLength);
 #endif /* _WIN32 */
 
     n = (int)strlen(out);
@@ -370,7 +370,7 @@ static void PrepareEnvironment(void)
 {
     char ConfigDirectory[2048];
 
-    GetConfigDirectory(ConfigDirectory);
+    GetConfigDirectory(ConfigDirectory, sizeof(ConfigDirectory));
 
     if( mkdir(ConfigDirectory, S_IRWXU | S_IRGRP | S_IROTH) != 0 )
     {

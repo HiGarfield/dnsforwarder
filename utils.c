@@ -687,14 +687,17 @@ int IPv4AddressToAsc(const void *Address, void *Buffer)
                    );
 }
 
-int GetConfigDirectory(char *out)
+int GetConfigDirectory(char *out, size_t OutLength)
 {
 #ifdef _WIN32
+    (void)out;
+    (void)OutLength;
     return -1;
 #else /* _WIN32 */
 #ifndef ANDROID
     struct passwd *pw = getpwuid(getuid());
-    char *home;
+    const char *home;
+    int n;
     *out = '\0';
     if( pw == NULL )
     {
@@ -704,11 +707,23 @@ int GetConfigDirectory(char *out)
     if( home == NULL )
         return 1;
 
-    strcpy(out, home);
-    strcat(out, "/.dnsforwarder");
+    /* Write through snprintf so we never overrun the caller's buffer even if
+       the home directory path is very long. */
+    n = snprintf(out, OutLength, "%s/.dnsforwarder", home);
+    if( n < 0 || (size_t)n >= OutLength )
+    {
+        /* Truncated: report failure instead of returning a partial path. */
+        *out = '\0';
+        return 1;
+    }
 
     return 0;
 #else /* ANDROID */
+    if( OutLength <= sizeof("/system/root/.dnsforwarder") )
+    {
+        *out = '\0';
+        return 1;
+    }
     strcpy(out, "/system/root/.dnsforwarder");
 
     return 0;

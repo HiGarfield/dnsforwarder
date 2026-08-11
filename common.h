@@ -281,7 +281,7 @@
 #ifdef _WIN32
     #define GetFileDirectory(out)   (GetModulePath(out, sizeof(out)))
 #else /* _WIN32 */
-    #define GetFileDirectory(out)   (GetConfigDirectory(out))
+    #define GetFileDirectory(out)   (GetConfigDirectory(out, sizeof(out)))
 #endif /* _WIN32 */
 
 #ifndef MSG_NOSIGNAL

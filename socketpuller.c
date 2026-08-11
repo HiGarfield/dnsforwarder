@@ -158,8 +158,11 @@ SocketPuller **SocketPullers_Init(int Count, int DataLength)
     return Pullers;
 
 EXIT_1:
+    /* SocketPullers_FreeWithoutClose already releases the contiguous Buffer
+       array (via SafeFree(Pullers[0])) and the Pullers array itself, so no
+       extra free of Buffer is needed here.  Freeing it again would be a
+       double-free. */
     SocketPullers_FreeWithoutClose(Pullers);
-    SafeFree(Buffer);
     return NULL;
 }
 

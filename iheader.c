@@ -35,6 +35,15 @@ int IHeader_Fill(IHeader *h,
     h->RequestTcp = FALSE;
     h->EDNSEnabled = FALSE;
 
+    /* The frontend receive buffers are reused across clients, and h->Type /
+       h->Domain / h->HashValue are only set when a QUESTION record is parsed.
+       A request with QDCOUNT == 0 (no QUESTION) still returns success from
+       IHeader_Fill, so initialize them here to avoid leaking the previous
+       request's values into downstream consumers (filter, hosts, cache). */
+    h->Type = DNS_TYPE_UNKNOWN;
+    h->Domain[0] = '\0';
+    h->HashValue = 0;
+
     if( DnsSimpleParser_Init(&p, DnsEntity, EntityLength, FALSE) != 0 )
     {
         return -31;

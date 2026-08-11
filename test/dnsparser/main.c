@@ -16,6 +16,7 @@
 #include "../../dnsparser.h"
 #include "../../addresslist.h"
 #include "../../utils.h"
+#include "../../iheader.h"
 
 static int Failures = 0;
 static int Checks = 0;
@@ -317,6 +318,55 @@ static void Test_GetAddressLength(void)
           GetAddressLength(AF_UNSPEC) > 0);
 }
 
+/*
+ * The frontend receive buffers are reused across clients, and IHeader_Fill
+ * only sets h->Type when a QUESTION record is present. A query with QDCOUNT
+ * == 0 (no QUESTION) still succeeds, so without an explicit init the second
+ * fill into the same buffer would inherit the previous request's h->Type.
+ * That stale value then drives filter/hosts/cache decisions.
+ *
+ * Reproduce with the real layout: the IHeader lives at the front of the
+ * receive buffer and the DNS message starts at sizeof(IHeader), exactly how
+ * udpm.c / tcpfrontend.c hand the entity to IHeader_Fill.
+ */
+static void Test_IHeaderFillDoesNotLeakStaleType(void)
+{
+    char Buf[SOCKET_CONTEXT_LENGTH];
+    IHeader *h = (IHeader *)Buf;
+    char DnsMsg[256];
+    int Len;
+
+    printf("IHeader_Fill stale-type leakage\n");
+
+    Len = BuildQuery(DnsMsg);   /* QDCOUNT = 1, type A */
+
+    /* Normal query: place the DNS message where the frontend would. */
+    memset(Buf, 0, sizeof(Buf));
+    memcpy((char *)h + sizeof(IHeader), DnsMsg, Len);
+
+    Check("first fill of a normal query succeeds",
+          IHeader_Fill(h, FALSE, (char *)h + sizeof(IHeader), Len, NULL, 0, AF_INET, NULL) == 0);
+    Check("first fill records type A",
+          h->Type == DNS_TYPE_A);
+    Check("first fill records the domain",
+          strcmp(h->Domain, "a.bc") == 0);
+
+    /* Now a QDCOUNT == 0 message into the SAME, un-memset buffer. */
+    {
+        static const unsigned char Empty[] = {
+            0x12, 0x34, 0x01, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        };
+        memcpy((char *)h + sizeof(IHeader), Empty, sizeof(Empty));
+        Check("QDCOUNT=0 query is still accepted by IHeader_Fill",
+              IHeader_Fill(h, FALSE, (char *)h + sizeof(IHeader), (int)sizeof(Empty), NULL, 0, AF_INET, NULL) == 0);
+        Check("QDCOUNT=0 query does not leak the previous type",
+              h->Type == DNS_TYPE_UNKNOWN);
+        Check("QDCOUNT=0 query resets the domain",
+              h->Domain[0] == '\0');
+    }
+}
+
 int main(void)
 {
     printf("== dnsparser / address helper regression tests ==\n\n");
@@ -328,6 +378,7 @@ int main(void)
     Test_IPv6AddressToNumDoesNotOverflow();
     Test_AddressPortFallback();
     Test_GetAddressLength();
+    Test_IHeaderFillDoesNotLeakStaleType();
 
     printf("\n%d checks, %d failure(s)\n", Checks, Failures);
     return Failures == 0 ? 0 : 1;

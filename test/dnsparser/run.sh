@@ -21,6 +21,8 @@ $Root/array.c
 $Root/stringlist.c
 $Root/stablebuffer.c
 $Root/dnsrelated.c
+$Root/iheader.c
+$Root/dnsgenerator.c
 "
 
 ${CC:-cc} -I"$Root" -g -Wall -o "$Out" $Sources -lpthread -lm

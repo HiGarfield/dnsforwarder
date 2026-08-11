@@ -746,15 +746,28 @@ static int Modules_Load(ConfigFileInfo *ConfigInfo)
            still reference OldModuleMap; if we held the lock here the new
            thread would block forever on that wrlock (it runs in a different
            thread and the rwlock is not recursive), stalling every reload and
-           every reader behind the writer-priority lock. */
+           every reader behind the writer-priority lock.
+
+           CREATE_THREAD behaves differently per platform: on POSIX it expands
+           to pthread_create() and its value is the int return code (0 on
+           success), while `th` receives the thread id; on Windows it assigns
+           the HANDLE to `th` and its value is that HANDLE.  Capture/check
+           accordingly so the code compiles and behaves on both. */
+#ifdef _WIN32
+        CREATE_THREAD(Modules_SafeCleanup, OldModuleMap, th);
+        if( th == NULL_THREAD )
+        {
+            ERRORMSG("Failed to start cleanup thread.\n");
+            return -99;
+        }
+#else
         ret = CREATE_THREAD(Modules_SafeCleanup, OldModuleMap, th);
         if( ret != 0 )
         {
             ERRORMSG("Failed to start cleanup thread: %d\n", ret);
-            /* NewModuleMap is already published as CurModuleMap and must not be
-               freed; OldModuleMap leaks but we cannot safely recover here. */
             return -99;
         }
+#endif
         DETACH_THREAD(th);
     }
 

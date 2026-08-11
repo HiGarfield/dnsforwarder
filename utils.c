@@ -808,7 +808,12 @@ BOOL IsPrime(int n)
         return FALSE;
     }
 
-    for(i = 3; i < sqrt(n) + 1; i += 2)
+    /* Use integer arithmetic instead of the floating-point sqrt() bound:
+       sqrt() can round a perfect square slightly below its true root, and a
+       "< sqrt(n) + 1" check is fragile.  "i <= n / i" is exact and avoids
+       both float-accuracy issues and the i*i overflow that would occur for
+       large n. */
+    for(i = 3; i <= n / i; i += 2)
     {
         if( n % i == 0 )
         {

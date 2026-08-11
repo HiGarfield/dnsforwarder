@@ -734,7 +734,14 @@ static int Modules_Load(ConfigFileInfo *ConfigInfo)
 
     RWLock_WrLock(ModulesLock);
 
-    CREATE_THREAD(Modules_SafeCleanup, CurModuleMap, th);
+    th = CREATE_THREAD(Modules_SafeCleanup, CurModuleMap, th);
+    if( th != 0 )
+    {
+        /* Thread creation failed: do not detach an uninitialized handle. */
+        ERRORMSG("Failed to start cleanup thread: %d\n", (int)th);
+        ret = -99;
+        goto ModulesFree;
+    }
     DETACH_THREAD(th);
     CurModuleMap = NewModuleMap;
 

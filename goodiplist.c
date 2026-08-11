@@ -188,12 +188,18 @@ static int InitListsAndTimes(ConfigFileInfo *ConfigInfo)
            stack slot, turning every later GoodIpList_Get into a use-after-scope
            read. A heap pointer stays valid for the whole process lifetime. */
         m.List.DataLength = sizeof(struct sockaddr_in);
-        m.List.Data = SafeMalloc(GOODIPLIST_MAX_IPS_PER_LIST * sizeof(struct sockaddr_in));
-        if( m.List.Data == NULL )
+        /* Allocate a contiguous array of sockaddr_in, kept as a char* byte
+           buffer (Array.Data is char*).  Receive the malloc result in a
+           sockaddr_in* first so the allocation size matches the pointer type
+           and static analysers (clang unix.MallocSizeof) stay quiet. */
+        struct sockaddr_in *ipbuf =
+            SafeMalloc(GOODIPLIST_MAX_IPS_PER_LIST * sizeof(struct sockaddr_in));
+        if( ipbuf == NULL )
         {
             ERRORMSG("GoodIpList out of memory : %s\n", Itr);
             continue;
         }
+        m.List.Data = (char *)ipbuf;
         m.List.Allocated = GOODIPLIST_MAX_IPS_PER_LIST;
         m.List.Used = 0;
 

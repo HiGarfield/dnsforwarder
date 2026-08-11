@@ -169,6 +169,9 @@ UdpM_Works(UdpM *m)
             }
 #endif
 
+            /* m->Lock is already held for the socket-setup block; the
+               sweep thread also touches CountOfTimeout, so reset it here
+               under the same lock to avoid a data race. */
             m->CountOfTimeout = 0;
 
             EFFECTIVE_LOCK_RELEASE(m->Lock);
@@ -191,13 +194,24 @@ UdpM_Works(UdpM *m)
 
             case 0:
                 #define RECREATION_THRESHOLD    8
-                if( m->CountOfTimeout > RECREATION_THRESHOLD )
                 {
-                    FD_CLR(m->Departure, &ReadSet);
-                    CLOSE_SOCKET(m->Departure);
-                    m->Departure = INVALID_SOCKET;
+                    int CountOfTimeout;
 
-                    WARNING("UDP socket is about to be recreated.\n");
+                    /* Read CountOfTimeout under the lock: the sweep thread
+                       increments it concurrently, so a plain read is a data
+                       race that can yield a torn value. */
+                    EFFECTIVE_LOCK_GET(m->Lock);
+                    CountOfTimeout = m->CountOfTimeout;
+                    EFFECTIVE_LOCK_RELEASE(m->Lock);
+
+                    if( CountOfTimeout > RECREATION_THRESHOLD )
+                    {
+                        FD_CLR(m->Departure, &ReadSet);
+                        CLOSE_SOCKET(m->Departure);
+                        m->Departure = INVALID_SOCKET;
+
+                        WARNING("UDP socket is about to be recreated.\n");
+                    }
                 }
                 continue;
                 break;
@@ -222,7 +236,9 @@ UdpM_Works(UdpM *m)
             continue;
         }
 
+        EFFECTIVE_LOCK_GET(m->Lock);
         m->CountOfTimeout = 0;
+        EFFECTIVE_LOCK_RELEASE(m->Lock);
 
         /* Fill IHeader. Start from a clean slate so that, if IHeader_Fill
            bails out early on a malformed packet (e.g. < 12 bytes), the

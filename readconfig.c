@@ -186,7 +186,7 @@ int ConfigSetStringDelimiters(ConfigFileInfo *Info,
 
 static BOOL GetBooleanValueFromString(const char *str)
 {
-    if( isdigit(*str) )
+    if( isdigit((unsigned char)*str) )
     {
         if( *str == '0' )
             return FALSE;
@@ -200,14 +200,9 @@ static BOOL GetBooleanValueFromString(const char *str)
 
         StrToLower(Dump);
 
-        if( strstr(Dump, "false") != NULL )
+        if( strcmp(Dump, "false") == 0 || strcmp(Dump, "no") == 0 )
             return FALSE;
-        else if( strstr(Dump, "true") != NULL )
-            return TRUE;
-
-        if( strstr(Dump, "no") != NULL )
-            return FALSE;
-        else if( strstr(Dump, "yes") != NULL )
+        else if( strcmp(Dump, "true") == 0 || strcmp(Dump, "yes") == 0 )
             return TRUE;
     }
 

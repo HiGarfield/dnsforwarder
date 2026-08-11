@@ -463,7 +463,19 @@ static uint32_t DNSCache_CacheMinTTL(const char *Content, size_t Length, uint32_
     /* Get the smallest, in case of not equal. */
     while( (Node = DNSCache_FindFromCache(Content, Length, Node, CurrentTime)) != NULL )
     {
-        uint32_t TTL = Node->TTL - (CurrentTime - Node->TimeAdded);
+        uint32_t TTL;
+
+        /* Saturating subtraction: Node->TTL and the elapsed time are both
+           unsigned, so an expired node (elapsed >= TTL) would wrap to a
+           huge value under modular arithmetic.  Clamp at 0 so an expired
+           entry cannot be resurrected with a near-infinite TTL. */
+        if( (uint32_t)(CurrentTime - Node->TimeAdded) >= Node->TTL )
+        {
+            TTL = 0;
+        } else {
+            TTL = Node->TTL - (uint32_t)(CurrentTime - Node->TimeAdded);
+        }
+
         if( RecordTTL > TTL )
         {
             RecordTTL = TTL;

@@ -41,7 +41,9 @@ static int EnvironmentInit(void)
 
     /* Setting env */
     GetFileDirectory(TmpStr);
-    strcat(TmpStr, PATH_SLASH_STR);
+    snprintf(TmpStr + strlen(TmpStr),
+             sizeof(TmpStr) - strlen(TmpStr),
+             "%s", PATH_SLASH_STR);
 
     SetProgramEnvironment("PROGRAMDIRECTORY", TmpStr);
 
@@ -66,7 +68,9 @@ static int EnvironmentInit(void)
     ConfigAddOption(&ConfigInfo, "LogFileThresholdLength", STRATEGY_DEFAULT, TYPE_INT32, TmpTypeDescriptor);
 
     GetFileDirectory(TmpStr);
-    strcat(TmpStr, PATH_SLASH_STR);
+    snprintf(TmpStr + strlen(TmpStr),
+             sizeof(TmpStr) - strlen(TmpStr),
+             "%s", PATH_SLASH_STR);
     TmpTypeDescriptor.str = TmpStr;
     ConfigAddOption(&ConfigInfo, "LogFileFolder", STRATEGY_REPLACE, TYPE_PATH, TmpTypeDescriptor);
 
@@ -127,8 +131,9 @@ static int EnvironmentInit(void)
     ConfigAddOption(&ConfigInfo, "DomainStatistic", STRATEGY_DEFAULT, TYPE_BOOLEAN, TmpTypeDescriptor);
 
     GetFileDirectory(TmpStr);
-    strcat(TmpStr, PATH_SLASH_STR);
-    strcat(TmpStr, "StatisticTemplate.html");
+    snprintf(TmpStr + strlen(TmpStr),
+             sizeof(TmpStr) - strlen(TmpStr),
+             "%s%s", PATH_SLASH_STR, "StatisticTemplate.html");
     TmpTypeDescriptor.str = TmpStr;
     ConfigAddOption(&ConfigInfo, "DomainStatisticTempletFile", STRATEGY_REPLACE, TYPE_PATH, TmpTypeDescriptor);
 
@@ -145,8 +150,9 @@ static int EnvironmentInit(void)
     ConfigAddOption(&ConfigInfo, "HostsRetryInterval", STRATEGY_DEFAULT, TYPE_INT32, TmpTypeDescriptor);
 
     GetFileDirectory(TmpStr);
-    strcat(TmpStr, PATH_SLASH_STR);
-    strcat(TmpStr, "hosts.txt");
+    snprintf(TmpStr + strlen(TmpStr),
+             sizeof(TmpStr) - strlen(TmpStr),
+             "%s%s", PATH_SLASH_STR, "hosts.txt");
     TmpTypeDescriptor.str = TmpStr;
     ConfigAddOption(&ConfigInfo, "HostsDownloadPath", STRATEGY_REPLACE, TYPE_PATH, TmpTypeDescriptor);
 
@@ -184,8 +190,9 @@ static int EnvironmentInit(void)
     ConfigAddOption(&ConfigInfo, "MemoryCache", STRATEGY_DEFAULT, TYPE_BOOLEAN, TmpTypeDescriptor);
 
     GetFileDirectory(TmpStr);
-    strcat(TmpStr, PATH_SLASH_STR);
-    strcat(TmpStr, "cache");
+    snprintf(TmpStr + strlen(TmpStr),
+             sizeof(TmpStr) - strlen(TmpStr),
+             "%s%s", PATH_SLASH_STR, "cache");
     TmpTypeDescriptor.str = TmpStr;
     ConfigAddOption(&ConfigInfo, "CacheFile", STRATEGY_REPLACE, TYPE_PATH, TmpTypeDescriptor);
 

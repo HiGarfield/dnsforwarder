@@ -248,8 +248,11 @@ int DomainStatistic_Init(ConfigFileInfo *ConfigInfo)
     atexit(DomainStatistic_Cleanup);
 
     GetFileDirectory(FilePath);
-    strcat(FilePath, PATH_SLASH_STR);
-    strcat(FilePath, "statistic.html");
+    snprintf(FilePath + strlen(FilePath),
+             sizeof(FilePath) - strlen(FilePath),
+             "%s%s",
+             PATH_SLASH_STR,
+             "statistic.html");
 
     MainFile = fopen(FilePath, "w");
 

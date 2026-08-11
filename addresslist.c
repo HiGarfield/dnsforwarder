@@ -138,7 +138,7 @@ int AddressList_Add_From_String(AddressList *a, const char *Addr_Port, int Defau
 
 }
 
-int AddressList_Advance(AddressList *a)
+uint32_t AddressList_Advance(AddressList *a)
 {
     if( a == NULL )
     {

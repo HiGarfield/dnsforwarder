@@ -67,7 +67,7 @@ int AddressList_Add_From_String(__in    AddressList *a,
  *  0 on success, a non-zero value otherwise.
  */
 
-int AddressList_Advance(__in AddressList *a);
+uint32_t AddressList_Advance(__in AddressList *a);
 /* Description:
  *  Increase a->Counter by 1 .
  * Return value:

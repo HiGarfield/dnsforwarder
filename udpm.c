@@ -58,12 +58,17 @@ UdpM_Sweep_Thread(UdpM *m)
     }
 
     ModuleContext_Free(&(m->Context));
-    EFFECTIVE_LOCK_DESTROY(m->Lock);
 
     free((void *)(m->ServiceName));
     m->ServiceName = NULL;
 
-    /* Publish "sweep thread exited" under the lock. */
+    /* Publish "sweep thread exited" under the lock so Modules_SafeCleanup's
+     * wait loop (which takes this very spin lock to read WorkThread /
+     * SweepThread) observes it synchronously.  Do NOT destroy m->Lock here:
+     * Modules_SafeCleanup keeps polling it until the sweep thread is seen as
+     * exited, and destroying it first is use-after-destroy UB (matching the
+     * constraint already honored on the TCP side, which deliberately leaves
+     * the lock intact for the cleanup thread to read). */
     EFFECTIVE_LOCK_GET(m->Lock);
     m->SweepThread = NULL_THREAD;
     EFFECTIVE_LOCK_RELEASE(m->Lock);

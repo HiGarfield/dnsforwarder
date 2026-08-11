@@ -52,7 +52,7 @@ static void EliminateHeadSpace(char *str)
 {
     char *Home;
 
-    for(Home = str; isspace(*Home); ++Home);
+    for(Home = str; isspace((unsigned char)*Home); ++Home);
     if( Home != str )
     {
         memmove(str, Home, strlen(Home) + 1);
@@ -66,7 +66,7 @@ static void EliminateFootSpace(char *str)
 
     if( End >= str )
     {
-        for(; End >= str && isspace(*End); --End);
+        for(; End >= str && isspace((unsigned char)*End); --End);
         *(End + 1) = '\0';
     }
 

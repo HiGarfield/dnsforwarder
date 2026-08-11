@@ -255,6 +255,9 @@ int DNSCache_Init(ConfigFileInfo *ConfigInfo)
         TtlCtrl = malloc(sizeof(CacheTtlCtrl));
         if( TtlCtrl == NULL || CacheTtlCrtl_Init(TtlCtrl) != 0 )
         {
+            /* CacheTtlCrtl_Init failing (or malloc failing) must not leak the
+               control block we just allocated. */
+            SafeFree(TtlCtrl);
             return -1;
         }
     }

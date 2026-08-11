@@ -600,7 +600,17 @@ static int DNSCache_AddAItemToCache(DnsSimpleParserIterator *i,
                     break;
 
                 default:
-                    RecordTTL = (TtlContent->Coefficient) * i->GetTTL(i) + (TtlContent->Increment);
+                    /* Compute in 64-bit to avoid uint32_t overflow of the
+                       Coefficient * TTL product (e.g. a large TTL multiplier
+                       combined with a long upstream TTL would silently wrap to
+                       a tiny value, corrupting the cached record's lifetime).
+                       Clamp the result back into the uint32_t range. */
+                    {
+                        unsigned long long ttl = (unsigned long long)TtlContent->Coefficient *
+                                                 (unsigned long long)i->GetTTL(i) +
+                                                 (unsigned long long)TtlContent->Increment;
+                        RecordTTL = (ttl > 0xFFFFFFFFULL) ? 0xFFFFFFFFU : (uint32_t)ttl;
+                    }
                     break;
             }
         } else {

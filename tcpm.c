@@ -281,6 +281,17 @@ static int TcpM_RecvWrapper(SOCKET Sock, char *Buffer, int BufferSize)
             return (-1) * LastError;
         }
     }
+    /* recv() returning 0 means the peer closed the connection (FIN).  Treat it
+       as a closure/error, never as a successful read of zero bytes: callers
+       that expect an exact byte count (e.g. the 2-byte TCP length prefix) must
+       not mistake a closed connection for a valid short read, nor feed a zero
+       "length" into later size arithmetic (which, with unsigned counters, would
+       wrap to a huge value).  Normalise it to a negative error code. */
+    if( Recvlength == 0 )
+    {
+        return -1;
+    }
+
     return Recvlength;
 }
 

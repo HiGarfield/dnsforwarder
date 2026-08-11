@@ -59,6 +59,7 @@
     #define CREATE_THREAD(func_ptr, para_ptr, result_holder)    (result_holder) = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)(func_ptr), (para_ptr), 0, NULL);
     #define EXIT_THREAD(r)  return (r)
     #define DETACH_THREAD(t)    CloseHandle(t)
+    #define JOIN_THREAD(t)  do { WaitForSingleObject((t), INFINITE); CloseHandle(t); } while(0)
 
     /* Mutex */
     #define CREATE_MUTEX(m)     ((m) = CreateMutex(NULL, FALSE, NULL))
@@ -188,6 +189,7 @@
     #define CREATE_THREAD(func_ptr, para_ptr, return_value) (pthread_create(&(return_value), NULL, (void *(*)(void *))(func_ptr), (para_ptr)))
     #define EXIT_THREAD(r)  pthread_exit(r)
     #define DETACH_THREAD(t)    pthread_detach(t)
+    #define JOIN_THREAD(t)  pthread_join((t), NULL)
 
     /* mutex */
     #define CREATE_MUTEX(m)     (pthread_mutex_init(&(m), NULL))

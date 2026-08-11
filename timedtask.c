@@ -33,6 +33,11 @@ static WinMsgQue    MsgQue;
 static PIPE_HANDLE  WriteTo, ReadFrom;
 #endif /* _WIN32 */
 
+/* Signal for the worker thread to exit; set by TimedTask_Cleanup. */
+static volatile BOOL    TimedTask_ToExit = FALSE;
+/* Joinable handle of the worker thread (kept joinable, not detached). */
+static ThreadHandle     TimedTask_Worker = NULL_THREAD;
+
 #ifndef _WIN32
 static int Tv_Comapre(const struct timeval *one, const struct timeval *two)
 {
@@ -173,6 +178,11 @@ TimeTask_Work(void *Unused)
     {
         static TaskInfo *New;
 
+        if( TimedTask_ToExit )
+        {
+            break;
+        }
+
         i = TimeQueue.Get(&TimeQueue);
         if( i == NULL )
         {
@@ -249,6 +259,11 @@ TimeTask_Work(void *Unused)
 
     while( TRUE )
     {
+        if( TimedTask_ToExit )
+        {
+            break;
+        }
+
         i = TimeQueue.Get(&TimeQueue);
 
         if( i == NULL )
@@ -399,10 +414,34 @@ static int Compare(const void *One, const void *Two)
 
 static void TimedTask_Cleanup(void)
 {
+    /* Signal the worker to exit and wait for it to terminate so it does
+       not touch the queue/pipe after we free them. */
+    TimedTask_ToExit = TRUE;
+
+#ifdef _WIN32
+    /* Posting a message sets the internal event and wakes the worker
+       even when it is blocked inside MsgQue.Wait(). */
+    MsgQue.Post(&MsgQue, NULL);
+#else /* _WIN32 */
+    {
+        /* Write a wake-up byte so select() returns even when idle. */
+        char Dummy = 0;
+        WRITE_PIPE(WriteTo, &Dummy, sizeof(Dummy));
+    }
+#endif /* _WIN32 */
+
+    if( TimedTask_Worker != NULL_THREAD )
+    {
+        JOIN_THREAD(TimedTask_Worker);
+        TimedTask_Worker = NULL_THREAD;
+    }
+
     TimeQueue.Free(&TimeQueue);
 #ifdef _WIN32
     WinMsgQue_Destroy(&MsgQue);
 #else /* _WIN32 */
+    close(ReadFrom);
+    close(WriteTo);
 #endif /* _WIN32 */
 }
 
@@ -434,7 +473,7 @@ int TimedTask_Init(void)
 #endif /* _WIN32 */
 
     CREATE_THREAD(TimeTask_Work, NULL, t);
-    DETACH_THREAD(t);
+    TimedTask_Worker = t;
 
     return 0;
 }

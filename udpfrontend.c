@@ -125,7 +125,11 @@ void UdpFrontend_StartWork(void)
 
 static void UdpFrontend_Cleanup(void)
 {
-    Frontend.Free(&Frontend);
+    /* Do NOT free the global Frontend here: UdpFrontend_Work is a detached
+       thread blocked in Frontend.Select() and may still read Frontend's
+       internals (socket list, BST array) when atexit runs, which would be a
+       use-after-free. The process is exiting and the OS reclaims the memory,
+       so leaving it unfreed is the safe choice. */
 }
 
 int UdpFrontend_Init(ConfigFileInfo *ConfigInfo, BOOL StartWork)

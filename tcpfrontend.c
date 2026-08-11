@@ -176,7 +176,11 @@ void TcpFrontend_StartWork(void)
 
 static void TcpFrontend_Cleanup(void)
 {
-    Frontend.Free(&Frontend);
+    /* Do NOT free the global Frontend here: TcpFrontend_Work is a detached
+       thread blocked in Frontend.Select() and may still read Frontend's
+       internals (socket list, BST array) when atexit runs, which would be a
+       use-after-free. The process is exiting and the OS reclaims the memory,
+       so leaving it unfreed is the safe choice. */
 }
 
 int TcpFrontend_Init(ConfigFileInfo *ConfigInfo, BOOL StartWork)

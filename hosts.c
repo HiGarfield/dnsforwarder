@@ -15,6 +15,13 @@ static SOCKET   InnerSocket;
 static Address_Type InnerAddress;
 static SocketPuller Puller;
 
+/* Set by Hosts_Cleanup() (atexit) so the detached Hosts_SocketLoop thread
+   stops touching the StaticHosts/DynamicHosts containers (freed by their own
+   cleanups) and the sockets as the process tears down. */
+static volatile BOOL    Hosts_ToExit = FALSE;
+static ThreadHandle     Hosts_Thread = NULL_THREAD;
+static SOCKET           OuterSocket = INVALID_SOCKET;
+
 BOOL Hosts_TypeExisting(const char *Domain, HostsRecordType Type)
 {
     return StaticHosts_TypeExisting(Domain, Type) ||
@@ -124,11 +131,12 @@ Hosts_SocketLoop(void *Unused)
 {
     ModuleContext Context;
 
-    SOCKET   OuterSocket;
     Address_Type OuterAddress;
 
     const struct timeval LongTime = {3600, 0};
     const struct timeval ShortTime = {10, 0};
+    /* Bounded timeout used to poll Hosts_ToExit promptly during shutdown. */
+    const struct timeval ExitTime = {1, 0};
 
     struct timeval  TimeLimit = LongTime;
 
@@ -176,7 +184,21 @@ Hosts_SocketLoop(void *Unused)
         SOCKET  Pulled;
         int Err;
 
+        /* Bound the wait so we re-check Hosts_ToExit in a timely manner
+           during shutdown (the normal LongTime/ShortTime sweep logic still
+           applies otherwise). */
+        if( Hosts_ToExit )
+        {
+            TimeLimit = ExitTime;
+        }
+
         Pulled = Puller.Select(&Puller, &TimeLimit, NULL, TRUE, FALSE, &Err);
+
+        /* Stop touching the containers/sockets once cleanup is underway. */
+        if( Hosts_ToExit )
+        {
+            break;
+        }
         if( Pulled == INVALID_SOCKET )
         {
             if( Err != 0 )
@@ -297,12 +319,45 @@ Hosts_SocketLoop(void *Unused)
         }
     }
 
+    /* Reached on Hosts_ToExit break: free the per-thread context but leave
+       Puller to Hosts_Cleanup (which also closes the sockets and joins us),
+       avoiding a double free. */
     ModuleContext_Free(&Context);
+
+    return ret;
 
 EXIT_1:
     Puller.Free(&Puller);
 
     return ret;
+}
+
+static void Hosts_Cleanup(void)
+{
+    /* Stop the worker before StaticHosts_Cleanup / DynamicHosts_Cleanup free
+       the containers it may still be reading, and close the sockets/puller it
+       uses. Registered via atexit after those two, so it runs first (LIFO). */
+    Hosts_ToExit = TRUE;
+
+    if( InnerSocket != INVALID_SOCKET )
+    {
+        CLOSE_SOCKET(InnerSocket);
+        InnerSocket = INVALID_SOCKET;
+    }
+
+    if( OuterSocket != INVALID_SOCKET )
+    {
+        CLOSE_SOCKET(OuterSocket);
+        OuterSocket = INVALID_SOCKET;
+    }
+
+    if( Hosts_Thread != NULL_THREAD )
+    {
+        JOIN_THREAD(Hosts_Thread);
+        Hosts_Thread = NULL_THREAD;
+    }
+
+    Puller.Free(&Puller);
 }
 
 int Hosts_Init(ConfigFileInfo *ConfigInfo)
@@ -325,7 +380,12 @@ int Hosts_Init(ConfigFileInfo *ConfigInfo)
     }
 
     CREATE_THREAD(Hosts_SocketLoop, NULL, t);
-    DETACH_THREAD(t);
+    Hosts_Thread = t;
+
+    /* Register cleanup last so it runs first (atexit is LIFO) and stops the
+       worker before StaticHosts_Cleanup / DynamicHosts_Cleanup free the
+       containers it reads. */
+    atexit(Hosts_Cleanup);
 
     return 0;
 }

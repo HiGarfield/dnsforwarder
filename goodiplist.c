@@ -60,6 +60,7 @@ static struct sockaddr_in *CheckAList(struct sockaddr_in *Ips, int Count)
 
         if( SetSocketNonBlock(skt, TRUE) != 0 )
         {
+            CLOSE_SOCKET(skt);
             continue;
         }
 

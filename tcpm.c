@@ -541,18 +541,17 @@ PUBFUNC int TcpM_Send(TcpM *m,
                       int BufferLength
                       )
 {
-    int State;
-    const IHeader *h = (IHeader *)Buffer;
+    /* This is the ModuleInterface.Send entry invoked by MMgr_Send when a query
+       is routed to a TCP upstream (e.g. a Server group configured over TCP, or
+       UDP-to-TCP fallback).  The previous implementation did a sendto() to
+       m->IncomingAddr on m->Incoming -- the module's own *listen* socket, which
+       is never connect()ed -- so on Linux it returned ENOTCONN and every such
+       query was silently dropped.  Forward the query the same way TcpM_Works
+       does when it reads a client query from the listen socket: connect to an
+       upstream in m->ServiceList and send the (length-prefixed) payload. */
+    (void)BufferLength;
 
-    State = sendto(m->Incoming,
-                   Buffer,
-                   sizeof(IHeader) + h->EntityLength,
-                   MSG_NOSIGNAL,
-                   (const struct sockaddr *)&(m->IncomingAddr.Addr),
-                   GetAddressLength(m->IncomingAddr.family)
-                   );
-
-    return !(State > 0);
+    return TcpM_Send_Actual(m, (MsgContext *)Buffer, -1) <= 0;
 }
 
 static int TcpM_Cleanup(TcpM *m)

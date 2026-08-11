@@ -39,16 +39,24 @@ int Log_Init(ConfigFileInfo *ConfigInfo, BOOL PrintScreen, BOOL Debug)
         return 0;
     }
 
-    if( snprintf(FilePath,
-                 sizeof(FilePath),
-                 "%s%cdnsforwarder.log",
-                 ConfigGetRawString(ConfigInfo, "LogFileFolder"),
-                 PATH_SLASH_CH
-                 )
-        >= (int)sizeof(FilePath)
-    )
     {
-        return -36;
+        const char *LogFolder = ConfigGetRawString(ConfigInfo, "LogFileFolder");
+
+        /* ConfigGetRawString may return NULL when LogFileFolder is unset;
+           passing NULL to snprintf's %s is implementation-defined (glibc
+           prints "(null)", other libc may crash).  Fall back to an empty
+           string so the path is built safely. */
+        if( snprintf(FilePath,
+                     sizeof(FilePath),
+                     "%s%cdnsforwarder.log",
+                     LogFolder != NULL ? LogFolder : "",
+                     PATH_SLASH_CH
+                     )
+            >= (int)sizeof(FilePath)
+        )
+        {
+            return -36;
+        }
     }
 
     LogFile = fopen(FilePath, "r+");

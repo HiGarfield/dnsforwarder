@@ -48,6 +48,27 @@ PUBFUNC int SocketPuller_Del(SocketPuller *p, SOCKET s)
 
     FD_CLR(s, &(p->s));
 
+    /* select() scans fds up to p->Max + 1; if we just removed the current
+       maximum fd, recompute the new maximum so the scan window shrinks
+       instead of staying pinned at the historical peak.  (Other removals
+       leave Max unchanged, which is still correct because the deleted fd is
+       no longer set.) */
+    if( s == p->Max )
+    {
+        SOCKET NewMax = INVALID_SOCKET;
+        SOCKET Scan;
+
+        for( Scan = 0; Scan <= p->Max; ++Scan )
+        {
+            if( FD_ISSET(Scan, &(p->s)) )
+            {
+                NewMax = Scan;
+            }
+        }
+
+        p->Max = NewMax;
+    }
+
     return 0;
 }
 

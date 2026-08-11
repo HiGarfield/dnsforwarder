@@ -2,11 +2,32 @@
 #define _DNS_PARSER_H_
 
 #include <limits.h>
+#include <string.h>
+#include <arpa/inet.h>
 #include "common.h"
 #include "dnsrelated.h"
 
-#define GET_16_BIT_U_INT(ptr)   (ntohs(*(int16_t *)(ptr)))
-#define GET_32_BIT_U_INT(ptr)       (ntohl(*(int32_t *)(ptr)))
+/* Reading unaligned multi-byte integers via a cast such as
+   `*(int16_t *)(ptr)` violates the strict aliasing rules and may also fault
+   on architectures that require aligned accesses.  Both problems are silent
+   under -O0 but produce wrong code or crashes at higher optimisation levels
+   or on strict-alignment CPUs.  memcpy avoids the alias violation and the
+   alignment requirement; optimising compilers turn it into an efficient
+   load. */
+static inline uint16_t GET_16_BIT_U_INT(const void *ptr)
+{
+    uint16_t v;
+    memcpy(&v, ptr, sizeof(v));
+    return ntohs(v);
+}
+
+static inline uint32_t GET_32_BIT_U_INT(const void *ptr)
+{
+    uint32_t v;
+    memcpy(&v, ptr, sizeof(v));
+    return ntohl(v);
+}
+
 #define GET_8_BIT_U_INT(ptr)        (*(unsigned char*)(ptr))
 
 #define DNS_HEADER_LENGTH   12

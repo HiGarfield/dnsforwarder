@@ -490,8 +490,16 @@ static int TcpM_Send_Actual(TcpM *m, MsgContext *MsgCtx, int SingleServerIndex)
             struct sockaddr *addr;
             sa_family_t family;
 
-            addr = AddressList_GetOneBySubscript(&(m->ServiceList), &family, TcpCtx->ServerIndex);
-            if( TcpM_ProxyPreparation(s, addr, family) != 0 )
+            /* TcpCtx->ServerIndex is the *proxy* index (set in the
+               TcpM_Connect proxy path), NOT an index into the DNS upstream
+               service list.  Indexing m->ServiceList with it is both an
+               out-of-bounds risk (proxy count need not equal server count,
+               yielding a NULL addr and a crash inside TcpM_ProxyPreparation)
+               and semantically wrong (the proxy tunnels to whichever upstream
+               we ask it to reach).  Pick the upstream server from the service
+               rotation independently of the proxy index. */
+            addr = AddressList_GetOne(&(m->ServiceList), &family);
+            if( addr == NULL || TcpM_ProxyPreparation(s, addr, family) != 0 )
             {
                 AddressList_Advance(&(m->ServiceList));
                 CLOSE_SOCKET(s);

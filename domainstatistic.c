@@ -35,6 +35,13 @@ static char *PostOutput = NULL;
 
 static volatile BOOL    SkipStatistic = FALSE;
 
+/* Cooperative shutdown flag.  DomainStatistic_Works runs in a detached
+   TimedTask thread with no cancellation API, while DomainStatistic_Cleanup
+   (registered via atexit) frees PreOutput/PostOutput and closes MainFile.
+   Setting this flag before freeing makes the worker bail out instead of
+   touching the freed buffer or closed stream (use-after-free on exit). */
+static volatile BOOL    ToExit = FALSE;
+
 static int GetPreAndPost(ConfigFileInfo *ConfigInfo)
 {
     const char  *TemplateFile = ConfigGetRawString(ConfigInfo, "DomainStatisticTempletFile");
@@ -104,6 +111,15 @@ static int DomainStatistic_Works(void *Unused, void *Unused2)
     unsigned long int GenerateTime_Num;
 
     if( MainFile == NULL )
+    {
+        return 0;
+    }
+
+    /* Bail out if atexit cleanup is tearing down the shared resources we
+       are about to write into (PreOutput / MainFile).  Without this check
+       the worker could run after DomainStatistic_Cleanup has freed those,
+       a use-after-free / write-to-closed-stream at process exit. */
+    if( ToExit )
     {
         return 0;
     }
@@ -209,6 +225,12 @@ static int DomainStatistic_Works(void *Unused, void *Unused2)
 
 static void DomainStatistic_Cleanup(void)
 {
+    /* Signal the (detached) statistic worker thread to stop before we free
+       the resources it writes into.  We cannot join it (TimedTask detaches),
+       so this cooperative flag is what keeps DomainStatistic_Works from
+       touching a freed PreOutput / closed MainFile. */
+    ToExit = TRUE;
+
     if( PreOutput != NULL )
     {
         SafeFree(PreOutput);

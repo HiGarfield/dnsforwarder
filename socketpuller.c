@@ -11,6 +11,19 @@ PUBFUNC int SocketPuller_Add(SocketPuller *p,
         return -11;
     }
 
+    /* Defensive validation of the user-supplied association.  DataLength is
+       later memcpy'd by the backing BST, so a bogus length (e.g. 0 when a
+       payload was actually provided, or a negative value) would read or write
+       out of bounds.  Require the length to be consistent with Data. */
+    if( Data != NULL && DataLength <= 0 )
+    {
+        return -17;
+    }
+    if( Data == NULL && DataLength != 0 )
+    {
+        return -18;
+    }
+
     if( p->p.Add(&(p->p), s, Data, DataLength) != 0 )
     {
         return -16;

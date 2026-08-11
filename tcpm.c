@@ -247,18 +247,27 @@ static int TcpM_Connect(TcpM *m, int ServerIndex, BOOL IsProxy)
 static int TcpM_SendWrapper(SOCKET Sock, const char *Start, int Length)
 {
     time_t t = time(NULL);
+    int SentTotal = 0;
 
-    while( send(Sock, Start, Length, MSG_NOSIGNAL) != Length )
+    while( SentTotal < Length )
     {
-        int LastError = GET_LAST_ERROR();
-        if( FatalErrorDecideding(LastError) != 0 ||
-                !SocketIsWritable(Sock, TIMEOUT_ms_SEND) ||
-                time(NULL) - t > TIMEOUT_ms_SEND / 1000
-                )
+        int Sent = send(Sock, Start + SentTotal, Length - SentTotal, MSG_NOSIGNAL);
+
+        if( Sent < 0 )
         {
-            ShowSocketError("Sending to TCP server or proxy failed.", LastError);
-            return (-1) * LastError;
+            int LastError = GET_LAST_ERROR();
+            if( FatalErrorDecideding(LastError) != 0 ||
+                    !SocketIsWritable(Sock, TIMEOUT_ms_SEND) ||
+                    time(NULL) - t > TIMEOUT_ms_SEND / 1000
+                    )
+            {
+                ShowSocketError("Sending to TCP server or proxy failed.", LastError);
+                return (-1) * LastError;
+            }
+            continue;
         }
+
+        SentTotal += Sent;
     }
 
     return Length;

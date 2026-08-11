@@ -202,6 +202,7 @@ static int InitListsAndTimes(ConfigFileInfo *ConfigInfo)
         if( m.Interval <= 0 )
         {
             ERRORMSG("GoodIpList is invalid : %s\n", Itr);
+            SafeFree(m.List.Data);
             continue;
         }
 

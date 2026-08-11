@@ -217,6 +217,7 @@ static void DomainStatistic_Cleanup(void)
             fclose(MainFile);
         }
     }
+    StringChunk_Free(&MainChunk, FALSE);
     EFFECTIVE_LOCK_DESTROY(StatisticLock);
 }
 

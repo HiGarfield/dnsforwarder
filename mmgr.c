@@ -732,26 +732,31 @@ static int Modules_Load(ConfigFileInfo *ConfigInfo)
         goto ModulesFree;
     }
 
-    RWLock_WrLock(ModulesLock);
-
-    /* CREATE_THREAD on POSIX expands to pthread_create(&th, ...), which writes
-       the new thread id into `th` and returns 0 on success.  We must capture
-       pthread_create's *return code* separately: assigning it back to `th`
-       would clobber the thread id with 0, so the later DETACH_THREAD(th) would
-       detach an invalid id (pthread_detach(0) -> ESRCH) and leave the cleanup
-       thread joinable forever (resource leak on every reload). */
-    ret = CREATE_THREAD(Modules_SafeCleanup, CurModuleMap, th);
-    if( ret != 0 )
     {
-        ERRORMSG("Failed to start cleanup thread: %d\n", ret);
-        RWLock_UnWLock(ModulesLock);
-        ret = -99;
-        goto ModulesFree;
-    }
-    DETACH_THREAD(th);
-    CurModuleMap = NewModuleMap;
+        ModuleMap *OldModuleMap;
 
-    RWLock_UnWLock(ModulesLock);
+        RWLock_WrLock(ModulesLock);
+        OldModuleMap = CurModuleMap;
+        CurModuleMap = NewModuleMap;   /* publish the new map first */
+        RWLock_UnWLock(ModulesLock);   /* then release the lock */
+
+        /* Spawn the cleanup thread only after publishing the new map and
+           dropping the lock.  Modules_SafeCleanup re-acquires ModulesLock at
+           its end as a barrier to drain any in-flight MMgr_Send readers that
+           still reference OldModuleMap; if we held the lock here the new
+           thread would block forever on that wrlock (it runs in a different
+           thread and the rwlock is not recursive), stalling every reload and
+           every reader behind the writer-priority lock. */
+        ret = CREATE_THREAD(Modules_SafeCleanup, OldModuleMap, th);
+        if( ret != 0 )
+        {
+            ERRORMSG("Failed to start cleanup thread: %d\n", ret);
+            /* NewModuleMap is already published as CurModuleMap and must not be
+               freed; OldModuleMap leaks but we cannot safely recover here. */
+            return -99;
+        }
+        DETACH_THREAD(th);
+    }
 
     INFO("Loading GroupFile(s) completed.\n");
 

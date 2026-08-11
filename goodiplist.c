@@ -325,6 +325,23 @@ static void GoodIpList_Cleanup(void)
 {
     if(GoodIpList != NULL)
     {
+        /* Each ListInfo's List.Data is a heap buffer (see InitListsAndTimes)
+           that StringChunk_Free does not traverse and free; release them
+           first so they are not leaked at process exit. */
+        ListInfo *m;
+        const char *Domain;
+        int32_t Start = 0;
+
+        Domain = StringChunk_Enum_NoWildCard(GoodIpList, &Start, (void **)&m);
+        while( Domain != NULL )
+        {
+            if( m != NULL && m->List.Data != NULL )
+            {
+                SafeFree(m->List.Data);
+            }
+            Domain = StringChunk_Enum_NoWildCard(GoodIpList, &Start, (void **)&m);
+        }
+
         RWLock_Destroy(ListLock);
         StringChunk_Free(GoodIpList, TRUE);
         SafeFree(GoodIpList);

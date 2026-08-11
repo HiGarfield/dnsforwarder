@@ -78,8 +78,14 @@ static void TcpM_Connect_Recycle(SocketPuller *Puller, SocketPuller **Backups, i
             {
                 WARNING("Recycled socket has out-of-range ServerIndex %d (max %d), closing.\n",
                         TcpCtx->ServerIndex, NumOfBackups);
+                /* Do NOT SafeFree(TcpCtx): it points into the SocketPool's
+                   single shared SocketUnit buffer (SocketPool_Add always
+                   inserts the same sp->SocketUnit and FetchOnSet returns
+                   s + 1), so freeing it here would be an invalid free of a
+                   pointer into the middle of an allocated block (heap
+                   corruption). The buffer is owned and released by the
+                   SocketPool on Free(). Just drop the socket. */
                 CLOSE_SOCKET(s);
-                SafeFree(TcpCtx);
                 continue;
             }
 

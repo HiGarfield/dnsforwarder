@@ -26,11 +26,16 @@ static int IPMisc_AddSubstituteFromString(IPMisc *m,
     {   /* IPv6 */
         char    IpSubstituter[16];
 
-        /* IPv6AddressToNum() zeroes the whole buffer before parsing, so a
-           partially parsed literal yields a well-defined (if truncated)
-           address rather than stack garbage.  It also returns 0 for the
-           perfectly valid "::", hence no result check here. */
-        IPv6AddressToNum(Substituter, IpSubstituter);
+        /* Mirror the IPv4 branch: reject a substitute address the parser
+           could not fully decode.  IPv6AddressToNum() returns 0 (not 16)
+           for malformed "::"-abbreviated literals, so treat anything other
+           than a full 16-byte address as invalid rather than silently
+           installing a wrong substitute. */
+        if( IPv6AddressToNum(Substituter, IpSubstituter) != 16 )
+        {
+            ERRORMSG("Invalid IPv6 substitute address: %s\n", Substituter);
+            return -1;
+        }
 
         return IpChunk_Add(&(m->c),
                               Ip,

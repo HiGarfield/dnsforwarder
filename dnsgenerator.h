@@ -7,15 +7,22 @@
 #include "stringlist.h"
 #include "common.h"
 
-#define SET_16_BIT_U_INT(here, val) (*(uint16_t *)(here) = htons((uint16_t)(val)))
-#define SET_32_BIT_U_INT(here, val) (*(uint32_t *)(here) = htonl((uint32_t)(val)))
+/* Write network-order integers through memcpy instead of a cast, which
+   would violate strict aliasing and fault on CPUs that require aligned
+   access (the same class of defect already fixed on the getter side in
+   dnsparser.h). */
+#define SET_16_BIT_U_INT(here, val) \
+    do { uint16_t _v = htons((uint16_t)(val)); memcpy((here), &_v, 2); } while(0)
+#define SET_32_BIT_U_INT(here, val) \
+    do { uint32_t _v = htonl((uint32_t)(val)); memcpy((here), &_v, 4); } while(0)
 
 /* Handle DNS header*/
 #define DNSSetTcpLength(dns_start, Len)         SET_16_BIT_U_INT((char *)(dns_start), Len)
 
 #define DNSSetQueryIdentifier(dns_start, QId)   SET_16_BIT_U_INT((char *)(dns_start), QId)
 
-#define DNSCopyQueryIdentifier(dst, src)        (*(uint16_t *)(dst) = *(uint16_t *)(src))
+#define DNSCopyQueryIdentifier(dst, src) \
+    do { uint16_t _v; memcpy(&_v, (src), 2); memcpy((dst), &_v, 2); } while(0)
 
 #define DNSSetFlags(dns_start, Flags)           SET_16_BIT_U_INT((char *)(dns_start) + 2, Flags)
 

@@ -734,11 +734,17 @@ static int Modules_Load(ConfigFileInfo *ConfigInfo)
 
     RWLock_WrLock(ModulesLock);
 
-    th = CREATE_THREAD(Modules_SafeCleanup, CurModuleMap, th);
-    if( th != 0 )
+    /* CREATE_THREAD on POSIX expands to pthread_create(&th, ...), which writes
+       the new thread id into `th` and returns 0 on success.  We must capture
+       pthread_create's *return code* separately: assigning it back to `th`
+       would clobber the thread id with 0, so the later DETACH_THREAD(th) would
+       detach an invalid id (pthread_detach(0) -> ESRCH) and leave the cleanup
+       thread joinable forever (resource leak on every reload). */
+    ret = CREATE_THREAD(Modules_SafeCleanup, CurModuleMap, th);
+    if( ret != 0 )
     {
-        /* Thread creation failed: do not detach an uninitialized handle. */
-        ERRORMSG("Failed to start cleanup thread: %d\n", (int)th);
+        ERRORMSG("Failed to start cleanup thread: %d\n", ret);
+        RWLock_UnWLock(ModulesLock);
         ret = -99;
         goto ModulesFree;
     }

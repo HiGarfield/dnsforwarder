@@ -128,7 +128,7 @@ int32_t CacheHT_FindUnusedNode(CacheHT      *h,
 
         if( PreHead != NULL &&
             PreHead->Count > CurHead->Count &&
-            PreHead->TimeAdded - CurHead->TimeAdded >= IDLE_TIME_SEC
+            Now - PreHead->TimeAdded >= IDLE_TIME_SEC
             )
         {
             PreHead->Count = CurHead->Count;

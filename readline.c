@@ -5,12 +5,20 @@
 
 static BOOL ClearAnnotation(char *str, char mark)
 {
-    char *pos = strchr((const char *)str, mark);
+    char *pos = strchr(str, mark);
 
     if( pos != NULL )
     {
-        for(--pos; pos >= str && isspace(*pos); --pos);
-        *(pos + 1) = '\0';
+        /* Walk backwards over trailing whitespace that precedes the comment
+           marker.  The loop guard checks `pos > str` *before* dereferencing
+           `pos - 1` so we never form a pointer one element before `str`
+           (which would be undefined behaviour); the original code decremented
+           `pos` first and then compared, creating a `str - 1` pointer. */
+        while( pos > str && isspace((unsigned char)*(pos - 1)) )
+        {
+            --pos;
+        }
+        *pos = '\0';
         return TRUE;
     } else {
         return FALSE;

@@ -256,7 +256,12 @@ int TcpFrontend_Init(ConfigFileInfo *ConfigInfo, BOOL StartWork)
         }
 
         memset(&ClientAddr, 0, sizeof(Address_Type));
-        ClientAddr.family = f;
+        /* Tag the listening socket with AF_UNSPEC so TcpFrontend_Work can
+           tell it apart from an established connection and call accept() on
+           it. Established connections are re-added later with the real
+           family (see the re-add at line 127), which routes them to the
+           direct-recv branch. */
+        ClientAddr.family = AF_UNSPEC;
         Frontend.Add(&Frontend, sock, &ClientAddr, sizeof(Address_Type));
         INFO("TCP interface %s opened.\n", One);
         ++Count;

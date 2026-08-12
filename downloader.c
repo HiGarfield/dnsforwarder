@@ -225,6 +225,27 @@ int GetFromInternet_Base(const char *URL, const char *File)
         goto Exit_2;
     }
 
+    /* Reject HTTP error responses (4xx/5xx): InternetOpenUrl succeeds even for
+       error pages, so without this check a "404 Not Found" body would be
+       written out and could overwrite a valid hosts file. */
+    {
+        DWORD StatusCode  = 0;
+        DWORD StatusSize  = sizeof(StatusCode);
+
+        if( HttpQueryInfoA(webopenurl,
+                           HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
+                           &StatusCode,
+                           &StatusSize,
+                           NULL
+                           )
+            && StatusCode >= 400 )
+        {
+            WARNING("HTTP status %lu for %s, download skipped.\n", StatusCode, URL);
+            ret = -1;
+            goto Exit_2;
+        }
+    }
+
     fp = fopen(File, "wb" );
     if( fp == NULL )
     {

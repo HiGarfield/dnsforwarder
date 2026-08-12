@@ -68,7 +68,7 @@ TcpFrontend_Work(void *Unused)
             }
 
             IsNewConnected = TRUE;
-            ClientAddr_c.family = ClientAddr->family;
+            ClientAddr_c.family = ((struct sockaddr *)&(ClientAddr_c.Addr))->sa_family;
             ClientAddr = &ClientAddr_c;
         } else {
             IsNewConnected = FALSE;

@@ -95,6 +95,14 @@ PUBFUNC SOCKET SocketPuller_Select(SocketPuller *p,
 
     while( TRUE )
     {
+        /* A non-fatal select() error (e.g. EINTR) leaves Err set and then
+           `continue`s. If the next select() legitimately times out, Err would
+           still hold the stale non-fatal value and the caller (e.g. TcpM_Works)
+           would treat the timeout as a fatal error and tear down the worker.
+           Reset Err at the start of every iteration so only the outcome of the
+           current select() is reported. */
+        Err = 0;
+
         /* Re-copy the full descriptor set on every attempt. select() is
            allowed to modify its fd_set arguments even when it returns an
            error (e.g. EINTR), so reusing a possibly-clobbered ReadySet on a

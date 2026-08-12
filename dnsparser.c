@@ -705,6 +705,21 @@ typedef int (*FieldParser)(DnsSimpleParserIterator *i,
                            const char *Preface
                            );
 
+/* Every field parser below is handed the number of RDATA octets that are
+   still unconsumed. It MUST refuse to read more than that.
+
+   DnsSimpleParserIterator_ParseData() only stops walking a projector list
+   when the remaining length drops to zero, and a record's RDLENGTH is
+   entirely attacker controlled. A record whose RDATA is shorter than the
+   layout its type mandates -- a truncated SOA, an MX without the preference
+   word, an A record with RDLENGTH 1, ... -- would otherwise make these
+   parsers read up to 16 bytes beyond the RDATA, and beyond the end of the
+   received packet itself when the record is the last one in the message.
+   Both the logging path (GetAllAnswers()/TextifyData()) and the caching path
+   (ToCacheData()) reach this code with unvalidated responses. */
+#define ENOUGH_RDATA_LEFT(DataLength, Needed)   \
+    ((DataLength) != NULL && *(DataLength) >= (Needed))
+
 static int DnsSimpleParserIterator_Parse16Uint(DnsSimpleParserIterator *i,
                                                const char *Data,
                                                int *DataLength,
@@ -718,6 +733,11 @@ static int DnsSimpleParserIterator_Parse16Uint(DnsSimpleParserIterator *i,
     uint32_t    u;
 
     BOOL IsToCache = Format == NULL;
+
+    if( !ENOUGH_RDATA_LEFT(DataLength, 2) )
+    {
+        return -1;
+    }
 
     if( IsToCache )
     {
@@ -786,6 +806,11 @@ static int DnsSimpleParserIterator_Parse32Uint(DnsSimpleParserIterator *i,
 
     BOOL IsToCache = Format == NULL;
 
+    if( !ENOUGH_RDATA_LEFT(DataLength, 4) )
+    {
+        return -1;
+    }
+
     if( IsToCache )
     {
         if( 4 > BufferLength )
@@ -852,6 +877,11 @@ static int DnsSimpleParserIterator_ParseIPv4(DnsSimpleParserIterator *i,
 
     BOOL IsToCache = Format == NULL;
 
+    if( !ENOUGH_RDATA_LEFT(DataLength, 4) )
+    {
+        return -1;
+    }
+
     if( IsToCache )
     {
         if( 4 > BufferLength )
@@ -915,6 +945,11 @@ static int DnsSimpleParserIterator_ParseIPv6(DnsSimpleParserIterator *i,
     char Example[LENGTH_OF_IPV6_ADDRESS_ASCII + 1];
 
     BOOL IsToCache = Format == NULL;
+
+    if( !ENOUGH_RDATA_LEFT(DataLength, 16) )
+    {
+        return -1;
+    }
 
     if( IsToCache )
     {
@@ -982,6 +1017,11 @@ static int DnsSimpleParserIterator_UnpackLabeledName(DnsSimpleParserIterator *i,
 
     BOOL IsToCache = Format == NULL;
 
+    if( !ENOUGH_RDATA_LEFT(DataLength, 1) )
+    {
+        return -1;
+    }
+
     if( IsToCache )
     {
         Format = "%v";
@@ -1017,7 +1057,10 @@ static int DnsSimpleParserIterator_UnpackLabeledName(DnsSimpleParserIterator *i,
                                  sizeof(HostName)
                                  );
 
-    if( LabelLength < 0 )
+    /* The name has to fit in the record's own RDATA. Refusing an
+       over-long one keeps the projector list from walking past the
+       record and keeps `*DataLength` from going negative. */
+    if( LabelLength < 0 || LabelLength > *DataLength )
     {
         *Buffer = '\0';
         return -1;
@@ -1497,6 +1540,17 @@ static int DnsSimpleParserIterator_ToCacheData(DnsSimpleParserIterator *i,
                             );
 
     } else {
+        /* A and AAAA carry a fixed-width address. A record that does not
+           hold exactly that many octets is malformed: caching it would make
+           the cache replay a bogus address record to clients, and every
+           consumer that assumes 4 or 16 readable octets (the textifier, the
+           IP filters, the hosts matcher) would read past the RDATA. */
+        if( (i->Type == DNS_TYPE_A && i->DataLength != 4) ||
+            (i->Type == DNS_TYPE_AAAA && i->DataLength != 16) )
+        {
+            return -1;
+        }
+
         if( i->DataLength >= BufferLength )
         {
             return 0;

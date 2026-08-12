@@ -40,11 +40,17 @@ static void DynamicHosts_Cleanup(void)
 {
     ToExit = TRUE;
 
+    /* Do NOT destroy HostsLock here. The detached reload thread
+       (GetHostsFromInternet_Thread) may still be running when atexit fires;
+       it checks ToExit before use but there is a narrow window between that
+       check and its RWLock_WrLock inside DynamicHosts_Load(). Destroying the
+       lock here would let the thread lock a freed lock (undefined behaviour).
+       The OS reclaims the lock's resources when the process exits, so simply
+       leaving it untouched is both safe and sufficient. */
     DynamicHosts_ContainerCleanup((HostsContainer *)MainDynamicContainer);
     MainDynamicContainer = NULL;
     FreeCharPtrArray(HostsURLs);
     HostsURLs = NULL;
-    RWLock_Destroy(HostsLock);
 }
 
 static int DynamicHosts_Load(void)
@@ -170,6 +176,15 @@ static void GetHostsFromInternet_Thread(void *Unused1, void *Unused2)
             }
         }
 #endif
+
+        /* Re-check here: atexit may have set ToExit (and begun tearing down
+           the container) while we were blocked inside the download above.
+           Bailing out avoids loading into a container that cleanup is freeing
+           and avoids touching HostsLock during shutdown. */
+        if( ToExit )
+        {
+            return;
+        }
 
         DynamicHosts_Load();
         Filter_Update();

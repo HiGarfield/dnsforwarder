@@ -830,6 +830,9 @@ TcpM_Works(TcpM *m)
             {
                 WARNING("TCP %s returned a malformed message, discarded.\n",
                         m->SocksProxies != NULL ? "proxy" : "server");
+                /* The matching client query stays in the context unanswered;
+                   release its TCP socket hold. */
+                MsgContext_ReleaseSocket(MsgCtx);
                 continue;
             }
 
@@ -841,17 +844,23 @@ TcpM_Works(TcpM *m)
             case IP_MISC_FILTERED_IP:
                 ShowBlockedMessage(Header, "Bad package, discarded");
                 DomainStatistic_Add(Header, STATISTIC_TYPE_BLOCKEDMSG);
+                /* Query dropped without a response: release the TCP socket hold. */
+                MsgContext_ReleaseSocket(MsgCtx);
                 continue;
                 break;
 
             case IP_MISC_NEGATIVE_RESULT:
                 ShowBlockedMessage(Header, "Negative result, discarded");
                 DomainStatistic_Add(Header, STATISTIC_TYPE_BLOCKEDMSG);
+                /* Query dropped without a response: release the TCP socket hold. */
+                MsgContext_ReleaseSocket(MsgCtx);
                 continue;
                 break;
 
             default:
                 ERRORMSG("Fatal error 155.\n");
+                /* Query dropped without a response: release the TCP socket hold. */
+                MsgContext_ReleaseSocket(MsgCtx);
                 continue;
                 break;
             }
@@ -860,6 +869,8 @@ TcpM_Works(TcpM *m)
             {
                 ShowBlockedMessage(Header, "False package, discarded");
                 DomainStatistic_Add(Header, STATISTIC_TYPE_BLOCKEDMSG);
+                /* Query dropped without a response: release the TCP socket hold. */
+                MsgContext_ReleaseSocket(MsgCtx);
                 continue;
             }
 
@@ -869,6 +880,8 @@ TcpM_Works(TcpM *m)
 
             if( State != 0 )
             {
+                /* Query dropped without a response: release the TCP socket hold. */
+                MsgContext_ReleaseSocket(MsgCtx);
                 continue;
             }
 

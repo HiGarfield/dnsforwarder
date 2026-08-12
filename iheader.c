@@ -4,6 +4,7 @@
 #include "dnsgenerator.h"
 #include "common.h"
 #include "logs.h"
+#include "tcpfrontend.h"
 
 static BOOL ap = FALSE;
 
@@ -190,6 +191,7 @@ int MsgContext_SendBack(MsgContext *MsgCtx)
     IHeader *h = (IHeader *)MsgCtx;
     char *Content = (char *)(IHEADER_TAIL(h));
     int Length = h->EntityLength;
+    int SendResult;
 
     if( MsgContext_IsFromTCP(MsgCtx) )
     {
@@ -199,16 +201,12 @@ int MsgContext_SendBack(MsgContext *MsgCtx)
 
         DNSSetTcpLength(Content, h->EntityLength);
 
-        if( send(h->SendBackSocket,
-                 Content,
-                 Length,
-                 MSG_NOSIGNAL
-                 )
-            != Length )
-        {
-            /** TODO: Show error */
-            return -112;
-        }
+        SendResult = (send(h->SendBackSocket,
+                           Content,
+                           Length,
+                           MSG_NOSIGNAL
+                           )
+                      != Length);
     } else {
         /* UDP */
         if( h->ReturnHeader )
@@ -217,21 +215,38 @@ int MsgContext_SendBack(MsgContext *MsgCtx)
             Length += sizeof(IHeader);
         }
 
-        if( sendto(h->SendBackSocket,
-                   Content,
-                   Length,
-                   MSG_NOSIGNAL,
-                   (const struct sockaddr *)&(h->BackAddress.Addr),
-                   GetAddressLength(h->BackAddress.family)
-                   )
-           != Length )
-        {
-            /** TODO: Show error */
-            return -138;
-        }
+        SendResult = (sendto(h->SendBackSocket,
+                             Content,
+                             Length,
+                             MSG_NOSIGNAL,
+                             (const struct sockaddr *)&(h->BackAddress.Addr),
+                             GetAddressLength(h->BackAddress.family)
+                             )
+                        != Length);
     }
 
-    return 0;
+    /* The TCP client socket was dispatched to a module worker thread that owns
+       this send; once we return the frontend may finally close it (and,
+       eventually, reuse the descriptor for a different client). Release our
+       hold so it does not tear the descriptor down while a later response is
+       still being written, nor reuse it for the wrong client. No-op for UDP,
+       whose descriptor is the shared server socket. */
+    MsgContext_ReleaseSocket(MsgCtx);
+
+    return SendResult ? (MsgContext_IsFromTCP(MsgCtx) ? -112 : -138) : 0;
+}
+
+/* Released exactly once per dispatched TCP query, after the socket is no
+   longer needed by the module thread. For UDP the descriptor is the shared
+   server socket and this is a no-op. */
+void MsgContext_ReleaseSocket(MsgContext *MsgCtx)
+{
+    IHeader *h = (IHeader *)MsgCtx;
+
+    if( MsgContext_IsFromTCP(MsgCtx) )
+    {
+        TcpFrontend_ReleaseSocket(h->SendBackSocket);
+    }
 }
 
 int MsgContext_SendBackRefusedMessage(MsgContext *MsgCtx)

@@ -1,5 +1,6 @@
 #include <string.h>
 #include "mmgr.h"
+#include "iheader.h"
 #include "stringchunk.h"
 #include "utils.h"
 #include "filter.h"
@@ -886,6 +887,11 @@ int MMgr_Send(const char *Buffer, int BufferLength)
     /* Determine whether to discard the query */
     if( Filter_Out(MsgCtx) )
     {
+        /* Dropped before any module saw it: release the TCP socket hold so the
+           frontend can close it. Hosts/Cache hits (below) release through
+           MsgContext_SendBack; the dispatched-to-module path releases through
+           the module's own MsgContext_SendBack. */
+        MsgContext_ReleaseSocket(MsgCtx);
         return 0;
     }
 
@@ -909,6 +915,7 @@ int MMgr_Send(const char *Buffer, int BufferLength)
     if( CurModuleMap == NULL )
     {
         RWLock_UnRLock(ModulesLock);
+        MsgContext_ReleaseSocket(MsgCtx);
         return -190;
     }
 
@@ -938,6 +945,9 @@ int MMgr_Send(const char *Buffer, int BufferLength)
 
     if( i == NULL || *i == NULL )
     {
+        /* No upstream module could take this query: it is dropped, so release
+           the TCP socket hold here. */
+        MsgContext_ReleaseSocket(MsgCtx);
         ret = -190;
     } else {
         TheModule = *i;

@@ -302,6 +302,9 @@ UdpM_Works(UdpM *m)
 
         if( ContextState != 0 )
         {
+            /* The query is being dropped without a response; release the TCP
+               socket hold so the frontend can close it. */
+            MsgContext_ReleaseSocket(MsgCtx);
             continue;
         }
 
@@ -332,6 +335,9 @@ static int UdpM_Send(UdpM *m,
     if( m->Context.Add(&(m->Context), (MsgContext *)Buffer) == NULL )
     {
         EFFECTIVE_LOCK_RELEASE(m->Lock);
+        /* The dispatch was dropped before it reached an upstream; release the
+           TCP socket hold so the frontend can close it. */
+        MsgContext_ReleaseSocket((MsgContext *)Buffer);
         return -242;
     }
 
@@ -376,6 +382,8 @@ static int UdpM_Send(UdpM *m,
                  * stale context leaks and is counted as an unanswered query. */
                 m->Context.Del(&(m->Context), (MsgContext *)Buffer);
                 EFFECTIVE_LOCK_RELEASE(m->Lock);
+                /* Dispatch dropped: release the TCP socket hold. */
+                MsgContext_ReleaseSocket((MsgContext *)Buffer);
                 return -277;
             }
 
@@ -397,6 +405,8 @@ static int UdpM_Send(UdpM *m,
            otherwise leak and be counted as an unanswered query forever. Roll it
            back and report the failure. */
         m->Context.Del(&(m->Context), (MsgContext *)Buffer);
+        /* Dispatch dropped: release the TCP socket hold. */
+        MsgContext_ReleaseSocket((MsgContext *)Buffer);
         ret = 0;
     }
 

@@ -11,6 +11,82 @@ static SocketPuller Frontend;
 
 #define LEFT_LENGTH  (SOCKET_CONTEXT_LENGTH - sizeof(IHeader))
 
+#ifndef FD_SETSIZE
+#define FD_SETSIZE 1024
+#endif
+
+/*
+ * Ownership of a TCP client socket.
+ *
+ * The single frontend thread reads the query off the wire and hands it to a
+ * module worker thread, which sends the answer back on the *same* socket
+ * (MsgContext_SendBack -> send(sock_c)). The frontend also owns that socket's
+ * lifecycle: when the client disconnects it closes the descriptor. Without any
+ * coordination the close raced the module's send(), and -- worse -- once
+ * closed the fd was immediately reusable by a later accept(), so the pending
+ * answer could be written to a *different* client. Count how many dispatches
+ * are still in flight per socket and defer the close until they have all
+ * drained.
+ */
+static pthread_mutex_t TcpSocketOwnershipLock = PTHREAD_MUTEX_INITIALIZER;
+static int  TcpSocketInFlight[FD_SETSIZE];
+static BOOL TcpSocketGone[FD_SETSIZE];
+
+static void TcpFrontend_MarkDispatched(SOCKET s)
+{
+    if( s < 0 || s >= FD_SETSIZE )
+    {
+        return;
+    }
+    pthread_mutex_lock(&TcpSocketOwnershipLock);
+    TcpSocketInFlight[s]++;
+    pthread_mutex_unlock(&TcpSocketOwnershipLock);
+}
+
+void TcpFrontend_ReleaseSocket(SOCKET s)
+{
+    if( s < 0 || s >= FD_SETSIZE )
+    {
+        return;
+    }
+    pthread_mutex_lock(&TcpSocketOwnershipLock);
+    if( TcpSocketInFlight[s] > 0 )
+    {
+        TcpSocketInFlight[s]--;
+    }
+    if( TcpSocketInFlight[s] == 0 && TcpSocketGone[s] )
+    {
+        CLOSE_SOCKET(s);
+        TcpSocketGone[s] = FALSE;
+        TcpSocketInFlight[s] = 0;
+    }
+    pthread_mutex_unlock(&TcpSocketOwnershipLock);
+}
+
+/* The client side has gone away. Close the socket only if no query dispatched
+   from it is still being answered by a module thread; otherwise mark it gone
+   so the release of the last in-flight dispatch closes it instead. Either way
+   the caller must drop it from the puller afterwards. */
+static void TcpFrontend_ClientGone(SOCKET s)
+{
+    if( s < 0 || s >= FD_SETSIZE )
+    {
+        return;
+    }
+    pthread_mutex_lock(&TcpSocketOwnershipLock);
+    if( TcpSocketInFlight[s] == 0 )
+    {
+        CLOSE_SOCKET(s);
+        TcpSocketGone[s] = FALSE;
+        TcpSocketInFlight[s] = 0;
+    }
+    else
+    {
+        TcpSocketGone[s] = TRUE;
+    }
+    pthread_mutex_unlock(&TcpSocketOwnershipLock);
+}
+
 /*
  * Per-connection state, kept inside the socket puller.
  *
@@ -109,6 +185,13 @@ TcpFrontend_Work(void *Unused)
 
             NewState.Addr.family =
                 ((struct sockaddr *)&(NewState.Addr.Addr))->sa_family;
+
+            /* Fresh connection: no query is in flight and it is not gone. */
+            if( sock_c < FD_SETSIZE )
+            {
+                TcpSocketInFlight[sock_c] = 0;
+                TcpSocketGone[sock_c] = FALSE;
+            }
 
             if( Frontend.Add(&Frontend,
                              sock_c,
@@ -236,6 +319,12 @@ TcpFrontend_Work(void *Unused)
                 goto DropClient;
             }
 
+            /* The query now belongs to a module worker thread that will send the
+               answer back on this very socket. Track it so the lifecycle below
+               (and the close in TcpFrontend_ClientGone) does not tear the
+               descriptor down while the module is still using it. */
+            TcpFrontend_MarkDispatched(sock_c);
+
             MMgr_Send(ReceiveBuffer, SOCKET_CONTEXT_LENGTH);
         }
 
@@ -245,7 +334,13 @@ DropClient:
         /* `State' points into the puller's storage, so it must not be touched
            after the entry is removed. */
         Frontend.Del(&Frontend, sock_c);
-        CLOSE_SOCKET(sock_c);
+
+        /* The descriptor may still be in use by a module thread answering a
+           query dispatched from this connection; TcpFrontend_ClientGone closes
+           it only once every such dispatch has been released (see
+           TcpFrontend_ReleaseSocket), preventing a use-after-close and the
+           reuse of the fd by a later accept() for a different client. */
+        TcpFrontend_ClientGone(sock_c);
     }
 
     SafeFree(ReceiveBuffer);

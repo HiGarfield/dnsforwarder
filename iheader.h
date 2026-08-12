@@ -70,6 +70,10 @@ BOOL MsgContext_IsFromTCP(const MsgContext *MsgCtx);
 
 int MsgContext_SendBack(MsgContext *MsgCtx);
 
+/* Released once per dispatched TCP query once the module thread is done with
+   the client socket, so the frontend can close it safely. No-op for UDP. */
+void MsgContext_ReleaseSocket(MsgContext *MsgCtx);
+
 int MsgContext_SendBackRefusedMessage(MsgContext *MsgCtx);
 
 #endif /* IHEADER_H_INCLUDED */

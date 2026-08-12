@@ -50,39 +50,44 @@ void *Array_GetBySubscript(__in const Array *a, __in int Subscript)
     }
 }
 
+/* Subscript of the element `Position' belongs to, or a negative value if
+   `Position' is not the start of an element of `a'. Grow-down arrays store
+   subscript i at a->Data - i * DataLength, so the raw offset has to be negated
+   for them, otherwise every subscript but 0 comes out with the wrong sign. */
+static int Array_SubscriptOf(__in const Array *a, __in const char *Position)
+{
+    int n = (int)((Position - a->Data) / a->DataLength);
+
+    if( a->Allocated < 0 )
+    {
+        n *= (-1);
+    }
+
+    return n;
+}
+
 void *Array_GetThis(__in const Array *a, __in const void *Position)
 {
-    const char *pos = Position;
-
-    if( pos == NULL )
+    if( Position == NULL )
     {
         return NULL;
-    } else {
-        int n = (pos - a->Data) / a->DataLength;
-        return (void *)(a->Data + n * a->DataLength);
     }
+
+    return Array_GetBySubscript(a, Array_SubscriptOf(a, Position));
 }
 
 void *Array_GetNext(__in const Array *a, __in const void *Position)
 {
-    const char *pos = Position;
-
     int n;
 
-    if( pos == NULL )
+    if( Position == NULL )
     {
         n = 0;
     } else {
-        n = (pos - a->Data) / a->DataLength + 1;
+        n = Array_SubscriptOf(a, Position) + 1;
     }
 
-    if( n >= a->Used )
-    {
-        return NULL;
-    } else {
-        return (void *)(a->Data + n * a->DataLength);
-    }
-
+    return Array_GetBySubscript(a, n);
 }
 
 /* Subscript returned */

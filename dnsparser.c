@@ -1534,28 +1534,33 @@ int DnsSimpleParserIterator_Init(DnsSimpleParserIterator *i, DnsSimpleParser *p)
                         NameServerCount +
                         AdditionalCount;
 
-    i->QuestionFirst = QuestionCount == 0 ? 0 : 1;
-    i->QuestionLast = i->QuestionFirst + QuestionCount - 1;
+    i->QuestionFirst = QuestionCount == 0 ? -1 : 1;
+    i->QuestionLast = QuestionCount == 0 ? -1 : QuestionCount;
 
+    /* Record positions are 1-based. An absent section uses -1 as a sentinel so
+     * that its range check can never match a valid (>= 1) record position.
+     * Using 0 as the "absent" sentinel previously collided with the valid
+     * position when the preceding section had a count of 0, which caused the
+     * following (non-empty) section to be mis-classified as UNKNOWN and made
+     * iteration stop after the first record. */
     i->AnswerFirst = AnswerCount == 0 ?
-                     0 :
-                     i->QuestionFirst + QuestionCount;
-    i->AnswerLast = i->AnswerFirst + AnswerCount - 1;
+                     -1 :
+                     QuestionCount + 1;
+    i->AnswerLast = AnswerCount == 0 ? -1 : QuestionCount + AnswerCount;
 
     i->NameServerFirst = NameServerCount == 0 ?
-                         0 :
-                         i->QuestionFirst +
-                             QuestionCount +
-                             AnswerCount;
-    i->NameServerLast = i->NameServerFirst + NameServerCount - 1;
+                         -1 :
+                         QuestionCount + AnswerCount + 1;
+    i->NameServerLast = NameServerCount == 0 ?
+                        -1 :
+                        QuestionCount + AnswerCount + NameServerCount;
 
     i->AdditionalFirst = AdditionalCount == 0 ?
-                         0 :
-                         i->QuestionFirst +
-                             QuestionCount +
-                             AnswerCount +
-                             NameServerCount;
-    i->AdditionalLast = i->AdditionalFirst + AdditionalCount - 1;
+                         -1 :
+                         QuestionCount + AnswerCount + NameServerCount + 1;
+    i->AdditionalLast = AdditionalCount == 0 ?
+                        -1 :
+                        QuestionCount + AnswerCount + NameServerCount + AdditionalCount;
 
     i->Next = DnsSimpleParserIterator_Next;
     i->GotoAnswers = DnsSimpleParserIterator_GotoAnswers;

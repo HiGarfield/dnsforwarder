@@ -269,8 +269,14 @@ int TcpFrontend_Init(ConfigFileInfo *ConfigInfo, BOOL StartWork)
 
         if( listen(sock, 16) == SOCKET_ERROR )
         {
+            /* Only this interface failed. Close its socket and move on to the
+               remaining TCPLocal entries, exactly like the socket()/bind()
+               failure paths above; breaking out of the loop would leak the
+               descriptor and silently discard every interface that has not
+               been processed yet. */
             ERRORMSG("Can't listen on interface: %s .\n", One);
-            break;
+            CLOSE_SOCKET(sock);
+            continue;
         }
 
         if( f == AF_INET6 )

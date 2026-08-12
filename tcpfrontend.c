@@ -82,77 +82,100 @@ TcpFrontend_Work(void *Unused)
             IPv6AddressToAsc(&(((struct sockaddr_in6 *)ClientAddr)->sin6_addr), Agent);
         }
 
-        RecvState = recv(sock_c, (char *)&TCPLength, 2, 0);
-        if( RecvState == 2 )
+        /* TCP is a byte stream: a single recv() may return fewer bytes than
+           requested, so we must read in a loop until the 2-byte length prefix
+           and the whole message body are fully assembled. Dropping the
+           connection on a partial read would silently lose queries on slow or
+           congested networks. */
         {
-            TCPLength = ntohs(TCPLength);
-            if( TCPLength <= LEFT_LENGTH )
+            int   TotalRead  = 0;
+            int   Target     = 2;
+            char *Pos        = (char *)&TCPLength;
+
+            while( TotalRead < Target )
             {
-                RecvState = recv(sock_c, Entity, TCPLength, 0);
-                if( RecvState == TCPLength )
+                RecvState = recv(sock_c, Pos + TotalRead, Target - TotalRead, 0);
+                if( RecvState <= 0 )
                 {
-                    /* `IHeader_Fill` returns before filling in
-                       `SendBackSocket` and `EntityLength` when the message
-                       is malformed. Since `ReceiveBuffer` is shared by all
-                       clients, sending such a context on would reply to the
-                       previously served client with stale data. */
-                    if( IHeader_Fill(Header,
-                                     FALSE,
-                                     Entity,
-                                     RecvState,
-                                     NULL,
-                                     sock_c,
-                                     ClientAddr->family,
-                                     Agent
-                                     )
-                        != 0 )
+                    /* RecvState == 0: peer closed (FIN); < 0: socket error. */
+                    if( RecvState < 0 )
                     {
-                        INFO("Malformed message received from TCP client %s.\n",
-                             Agent
-                             );
-                        CLOSE_SOCKET(sock_c);
-
-                        if( IsNewConnected == FALSE )
-                        {
-                            Frontend.Del(&Frontend, sock_c);
-                        }
-
-                        continue;
+                        INFO("Connection error from TCP client %s.\n", Agent);
+                    } else {
+                        INFO("TCP client %s disconnected.\n", Agent);
                     }
-
-                    MMgr_Send(ReceiveBuffer, SOCKET_CONTEXT_LENGTH);
-
-                    if( IsNewConnected )
-                    {
-                        Frontend.Add(&Frontend, sock_c, ClientAddr, sizeof(Address_Type));
-                    }
-
-                    continue;
-
-                } else {
-                    INFO("Invalid data received from TCP client %s.\n", Agent);
+                    CLOSE_SOCKET(sock_c);
+                    goto NextClient;
                 }
-            } else {
-                WARNING("TCP client %s segment is too large, discarded.\n", Agent);
+                TotalRead += RecvState;
+            }
+        }
+
+        TCPLength = ntohs(TCPLength);
+
+        if( TCPLength <= LEFT_LENGTH )
+        {
+            int   TotalRead = 0;
+
+            while( TotalRead < TCPLength )
+            {
+                RecvState = recv(sock_c, Entity + TotalRead, TCPLength - TotalRead, 0);
+                if( RecvState <= 0 )
+                {
+                    if( RecvState < 0 )
+                    {
+                        INFO("Connection error from TCP client %s.\n", Agent);
+                    } else {
+                        INFO("TCP client %s disconnected.\n", Agent);
+                    }
+                    CLOSE_SOCKET(sock_c);
+                    goto NextClient;
+                }
+                TotalRead += RecvState;
             }
 
-            CLOSE_SOCKET(sock_c);
-        } else {
-            /* RecvState == 1: partial header;
-               RecvState == 0: peer closed the connection (FIN);
-               RecvState <  0: socket error (e.g. RST).
-               In all these cases the socket must be released, otherwise
-               every normally-disconnected TCP client leaks a handle and
-               the daemon eventually exhausts its fd pool. */
-            if( RecvState < 0 )
+            /* `IHeader_Fill` returns before filling in
+               `SendBackSocket` and `EntityLength` when the message
+               is malformed. Since `ReceiveBuffer` is shared by all
+               clients, sending such a context on would reply to the
+               previously served client with stale data. */
+            if( IHeader_Fill(Header,
+                             FALSE,
+                             Entity,
+                             TotalRead,
+                             NULL,
+                             sock_c,
+                             ClientAddr->family,
+                             Agent
+                             )
+                != 0 )
             {
-                INFO("Connection error from TCP client %s.\n", Agent);
-            } else if( RecvState == 0 )
-            {
-                INFO("TCP client %s disconnected.\n", Agent);
-            } else {
-                INFO("Invalid data received from TCP client %s.\n", Agent);
+                INFO("Malformed message received from TCP client %s.\n",
+                     Agent
+                     );
+                CLOSE_SOCKET(sock_c);
+
+NextClient:
+                /* remove from puller if it was an existing connection */
+                if( IsNewConnected == FALSE )
+                {
+                    Frontend.Del(&Frontend, sock_c);
+                }
+
+                continue;
             }
+
+            MMgr_Send(ReceiveBuffer, SOCKET_CONTEXT_LENGTH);
+
+            if( IsNewConnected )
+            {
+                Frontend.Add(&Frontend, sock_c, ClientAddr, sizeof(Address_Type));
+            }
+
+            continue;
+
+        } else {
+            WARNING("TCP client %s segment is too large, discarded.\n", Agent);
             CLOSE_SOCKET(sock_c);
         }
 

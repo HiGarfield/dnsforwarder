@@ -299,12 +299,18 @@ static BOOL IsDisabledDomain(const char *Domain, uint32_t HashValue)
 {
     int ret;
 
+    /* Take the lock before checking DisabledDomain. A reload
+       (DisabledDomain_Init) swaps the pointer under the write lock, so a
+       check made without the lock could read a freed/ NULL container and then
+       dereference it below (use-after-free / NULL deref). */
+    RWLock_RdLock(DisabledDomainLock);
+
     if (DisabledDomain == NULL)
     {
+        RWLock_UnRLock(DisabledDomainLock);
         return FALSE;
     }
 
-    RWLock_RdLock(DisabledDomainLock);
     ret = StringChunk_Domain_Match(DisabledDomain, Domain, &HashValue, NULL, NULL, NULL);
     RWLock_UnRLock(DisabledDomainLock);
 

@@ -106,15 +106,25 @@ static int StringList_AppendLast(StringList *s,
 
     Used = i.CurrentBlockUsed(&i);
 
-    /* Find the start of the last string in the block. A valid block ends
-       with a terminated-0, so scan backwards for the previous NUL that
-       terminates the second-to-last string. Guard against empty or
-       single-byte blocks to avoid forming out-of-bounds pointers. */
+    /* If the last block is empty (e.g. its only string was removed), there
+       is no previous string to concatenate with.  The old code then did
+       strcpy(NewStr, b) on uninitialised memory and sized NewStr one byte
+       short, so strcat() overflowed the heap.  Just add str as a new entry
+       instead. */
     if( Used < 1 )
     {
-        l = b;
-        LastHalfLength = 0;
-    } else {
+        NewlyAdded = sb->Add(sb, str, strlen(str) + 1, FALSE);
+        if( NewlyAdded == NULL )
+        {
+            return -4;
+        }
+        return Divide(NewlyAdded, Delimiters);
+    }
+
+    /* Find the start of the last string in the block. A valid block ends
+       with a terminated-0, so scan backwards for the previous NUL that
+       terminates the second-to-last string. */
+    {
         char *Tail;
 
         l = b + Used - 1; /* points at the terminating-0 of the block */

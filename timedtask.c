@@ -2,6 +2,7 @@
 #include "linkedqueue.h"
 #include "pipes.h"
 #include "logs.h"
+#include <stdatomic.h>
 
 #ifdef _WIN32
 #include "winmsgque.h"
@@ -34,7 +35,11 @@ static PIPE_HANDLE  WriteTo, ReadFrom;
 #endif /* _WIN32 */
 
 /* Signal for the worker thread to exit; set by TimedTask_Cleanup. */
-static volatile BOOL    TimedTask_ToExit = FALSE;
+/* Signalled by TimedTask_Cleanup() and polled by the worker thread. It is an
+   atomic so the write in Cleanup() and the reads in the worker do not race
+   (ThreadSanitizer otherwise reports a data race on it at shutdown). The
+   actual wake-up of the worker is done with the self-pipe, not by this flag. */
+static _Atomic BOOL      TimedTask_ToExit = FALSE;
 /* Joinable handle of the worker thread (kept joinable, not detached). */
 static ThreadHandle     TimedTask_Worker = NULL_THREAD;
 

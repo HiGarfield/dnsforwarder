@@ -186,11 +186,17 @@ TcpFrontend_Work(void *Unused)
             NewState.Addr.family =
                 ((struct sockaddr *)&(NewState.Addr.Addr))->sa_family;
 
-            /* Fresh connection: no query is in flight and it is not gone. */
+            /* Fresh connection: no query is in flight and it is not gone.
+               Done under the ownership lock because a module worker can still
+               be touching the previous occupant of this descriptor (e.g.
+               releasing a query dispatched on the fd before it was closed and
+               reused) -- otherwise this write races TcpFrontend_ReleaseSocket. */
             if( sock_c < FD_SETSIZE )
             {
+                pthread_mutex_lock(&TcpSocketOwnershipLock);
                 TcpSocketInFlight[sock_c] = 0;
                 TcpSocketGone[sock_c] = FALSE;
+                pthread_mutex_unlock(&TcpSocketOwnershipLock);
             }
 
             if( Frontend.Add(&Frontend,

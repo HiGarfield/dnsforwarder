@@ -21,6 +21,10 @@ static SocketPuller Puller;
 static volatile BOOL    Hosts_ToExit = FALSE;
 static ThreadHandle     Hosts_Thread = NULL_THREAD;
 static SOCKET           OuterSocket = INVALID_SOCKET;
+/* Set true only after a successful SocketPuller_Init so Hosts_Cleanup never
+   calls a NULL Puller.Free (e.g. when TryBindLocal or SocketPuller_Init
+   failed before reaching it). */
+static volatile BOOL    PullerReady = FALSE;
 
 BOOL Hosts_TypeExisting(const char *Domain, HostsRecordType Type)
 {
@@ -167,6 +171,7 @@ Hosts_SocketLoop(void *Unused)
         ret = -423;
         goto EXIT_1;
     }
+    PullerReady = TRUE;
 
     Puller.Add(&Puller, InnerSocket, NULL, 0);
     Puller.Add(&Puller, OuterSocket, NULL, 0);
@@ -357,7 +362,11 @@ static void Hosts_Cleanup(void)
         Hosts_Thread = NULL_THREAD;
     }
 
-    Puller.Free(&Puller);
+    if( PullerReady )
+    {
+        Puller.Free(&Puller);
+        PullerReady = FALSE;
+    }
 }
 
 int Hosts_Init(ConfigFileInfo *ConfigInfo)
@@ -379,7 +388,30 @@ int Hosts_Init(ConfigFileInfo *ConfigInfo)
         return -25;
     }
 
+    /* CREATE_THREAD expands to pthread_create() on POSIX (value is the int
+       return code, 0 on success) and assigns a HANDLE on Windows (compare
+       against NULL_THREAD). Capture accordingly. */
+#ifdef _WIN32
     CREATE_THREAD(Hosts_SocketLoop, NULL, t);
+    if( t == NULL_THREAD )
+    {
+        ERRORMSG("Failed to start Hosts socket loop thread.\n");
+        CLOSE_SOCKET(InnerSocket);
+        InnerSocket = INVALID_SOCKET;
+        return -402;
+    }
+#else
+    {
+        int thr_ret = CREATE_THREAD(Hosts_SocketLoop, NULL, t);
+        if( thr_ret != 0 )
+        {
+            ERRORMSG("Failed to start Hosts socket loop thread: %d\n", thr_ret);
+            CLOSE_SOCKET(InnerSocket);
+            InnerSocket = INVALID_SOCKET;
+            return -402;
+        }
+    }
+#endif
     Hosts_Thread = t;
 
     /* Register cleanup last so it runs first (atexit is LIFO) and stops the

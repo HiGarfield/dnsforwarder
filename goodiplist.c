@@ -42,7 +42,7 @@ static struct sockaddr_in *CheckAList(struct sockaddr_in *Ips, int Count)
 
     struct sockaddr_in *ret = NULL;
 
-    if( SocketPuller_Init(&p, sizeof(struct sockaddr *)) != 0 )
+    if( SocketPuller_Init(&p, sizeof(struct sockaddr_in *)) != 0 )
     {
         return NULL;
     }
@@ -51,6 +51,7 @@ static struct sockaddr_in *CheckAList(struct sockaddr_in *Ips, int Count)
     {
         SOCKET  skt;
         struct sockaddr *a;
+        struct sockaddr_in *Cur;
 
         skt = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if( skt == INVALID_SOCKET )
@@ -74,13 +75,12 @@ static struct sockaddr_in *CheckAList(struct sockaddr_in *Ips, int Count)
             continue;
         }
 
-        /* Store the address of the actual array element Ips[i], NOT &a.
-           `a` is a single local pointer variable reused every iteration, so
-           storing &a would make every SocketUnit alias the same local; after
-           the loop it holds &Ips[Count-1], causing Select() to always report
-           the last element as "fastest" regardless of which socket was ready
-           and breaking the fastest-IP rebalancing in ThreadJod. */
-        p.Add(&p, skt, &(Ips[i]), sizeof(struct sockaddr *));
+        /* Add() copies `DataLength' bytes *from* the given address into the
+           socket unit, and Select() hands back a pointer to that stored copy,
+           which is dereferenced once below (`ret = *Fastest'). Hence the
+           payload has to be the pointer to Ips[i], not Ips[i] itself. */
+        Cur = &(Ips[i]);
+        p.Add(&p, skt, &Cur, sizeof(Cur));
     }
 
     if( p.Select(&p, &Time, (void **)&Fastest, FALSE, TRUE, NULL) == INVALID_SOCKET )

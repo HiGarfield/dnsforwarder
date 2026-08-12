@@ -171,6 +171,7 @@ int GetErrorMsg(int Code, char *Buffer, int BufferLength)
 char *GetCurDateAndTime(char *Buffer, int BufferLength)
 {
     time_t              rawtime;
+    struct tm           TimeInfoStorage;
     struct tm           *timeinfo;
 
     if( Buffer == NULL || BufferLength <= 0 )
@@ -183,7 +184,20 @@ char *GetCurDateAndTime(char *Buffer, int BufferLength)
 
     time(&rawtime);
 
+    /* localtime() hands back a pointer to one `struct tm' shared by the whole
+       process. Every thread of the daemon reaches this function through
+       Log_Print(), which formats the timestamp before taking the print lock,
+       so concurrent loggers used to overwrite each other's broken-down time
+       (and to race inside the library's lazily-initialised timezone state).
+       Use the reentrant variant with a buffer of our own. */
+#ifdef _WIN32
+    /* The Windows CRT keeps the result in thread-local storage. */
+    (void)TimeInfoStorage;
     timeinfo = localtime(&rawtime);
+#else
+    timeinfo = localtime_r(&rawtime, &TimeInfoStorage);
+#endif
+
     if( timeinfo == NULL )
     {
         /* localtime failed; leave the buffer as an empty string. */

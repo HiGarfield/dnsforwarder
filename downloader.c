@@ -36,9 +36,9 @@ int GetFromInternet_MultiFiles(const char   **URLs,
                                void         (*SuccessCallBack)(const char *URL, const char *File)
                                )
 {
-    int State = FALSE;
-    FILE *fp;
-    char *TempFile;
+    BOOL    AllSucceeded = TRUE;
+    FILE    *fp;
+    char    *TempFile;
 
     TempFile = SafeMalloc(strlen(File) + sizeof(".tmp") + 1);
     if( TempFile == NULL )
@@ -62,7 +62,14 @@ int GetFromInternet_MultiFiles(const char   **URLs,
 
     while( *URLs != NULL )
     {
-        State |= !GetFromInternet_SingleFile(*URLs, TempFile, TRUE, RetryInterval, RetryTimes, ErrorCallBack, SuccessCallBack);
+        if( GetFromInternet_SingleFile(*URLs, TempFile, TRUE, RetryInterval, RetryTimes, ErrorCallBack, SuccessCallBack) != 0 )
+        {
+            /* A single failure means the merged result is incomplete, so the
+               existing target file must NOT be overwritten with a partial one.
+               We still try the remaining URLs to surface as many errors as
+               possible, but the final commit is suppressed below. */
+            AllSucceeded = FALSE;
+        }
 
         fp = fopen(TempFile, "a+");
         if( fp != NULL )
@@ -76,14 +83,14 @@ int GetFromInternet_MultiFiles(const char   **URLs,
         ++URLs;
     }
 
-    if( State && TRUE )
+    if( AllSucceeded )
     {
         remove(File);
         rename(TempFile, File);
     }
 
     SafeFree(TempFile);
-    return !State;
+    return AllSucceeded ? 0 : -1;
 }
 
 int GetFromInternet_SingleFile(const char   *URL,

@@ -264,7 +264,16 @@ static int AddToLists(ConfigFileInfo *ConfigInfo)
         ip.sin_port = htons(Port);
         ip.sin_family = AF_INET; /* IPv4 only */
 
-        IPv4AddressToNum(ip_str, &(ip.sin_addr));
+        /* Reject an unparseable address instead of silently installing
+           0.0.0.0 (IPv4AddressToNum leaves the buffer untouched on failure,
+           so a bad literal would otherwise be pushed into the good-IP list
+           and later served as a "fastest" upstream). Mirror the validation
+           already done in ipmisc.c. */
+        if( IPv4AddressToNum(ip_str, &(ip.sin_addr)) <= 0 )
+        {
+            ERRORMSG("Invalid GoodIPListAddIP address (expected 'list ip:port'): %s\n", Itr);
+            continue;
+        }
 
         if( StringChunk_Match_NoWildCard(GoodIpList,
                                          n,

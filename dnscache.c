@@ -955,7 +955,7 @@ static int DNSCache_GetByQuestion(__inout DnsGenerator *g,
                 }
             }
 
-            if( g->CName(g, "a", CName, NewTTL) != 0 )
+            if( g->CName(g, Name, CName, NewTTL) != 0 )
             {
                 RWLock_UnRLock(CacheLock);
                 return -5;

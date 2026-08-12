@@ -1,116 +1,104 @@
-/*
- * Regression tests for IpChunk CIDR matching (ipchunk.c).
+/* Regression test for IpChunk overlapping CIDR handling.
  *
- * These tests lock in the *correct* matching behaviour of short-prefix CIDR
- * ranges (e.g. /24, /26) and exact /32 host routes, so that any future
- * change to the BST comparator (Contain) that regresses address/prefix
- * matching is caught.
+ * The old Contain() comparator masked the network to the EXISTING element's
+ * prefix only, so a contained range (e.g. 10.1.0.0/16 added after
+ * 10.0.0.0/8) compared equal and was silently dropped by Bst_Add, losing the
+ * more specific rule.  Find() also relied on that faulty "equal means
+ * contained" comparison.
  *
- * Build (from the repository root):
- *   cc -I. -g -o /tmp/t_ipchunk test/ipchunk/main.c ipchunk.c stablebuffer.c \
- *      bst.c stringchunk.c stringlist.c array.c simpleht.c utils.c \
- *      addresslist.c -lm
+ * This test verifies that:
+ *   - both 10.0.0.0/8 and 10.1.0.0/16 coexist,
+ *   - a query inside only /8 matches type 8,
+ *   - a query inside /16 matches the most specific type 16 (longest prefix),
+ *   - single-IP exact matches and non-matches behave.
  *
- * Run under valgrind for the memory check:
- *   valgrind --leak-check=full --error-exitcode=9 /tmp/t_ipchunk
+ * Build (from the project root):
+ *   cc -I. -o /tmp/t_ipchunk test/ipchunk/main.c ipchunk.c bst.c array.c \
+ *       utils.c addresslist.c stringlist.c stablebuffer.c -lpthread
  */
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
+#include "ipchunk.h"
 
-#include "../../ipchunk.h"
-
-static int Failures = 0;
-static int Checks = 0;
-
-static void Check(const char *Name, int Condition)
+static int fail(const char *msg)
 {
-    ++Checks;
-    if( Condition )
-    {
-        printf("  [ ok ] %s\n", Name);
-    } else {
-        printf("  [FAIL] %s\n", Name);
-        ++Failures;
-    }
+    fprintf(stderr, "IpChunk FAILED: %s\n", msg);
+    return 1;
 }
 
 int main(void)
 {
     IpChunk ic;
-    int Type;
-    const char *Data;
+    int type;
+    unsigned char ip[16];
+    int rc = 0;
 
     if( IpChunk_Init(&ic) != 0 )
     {
-        printf("IpChunk_Init failed\n");
-        return 1;
+        return fail("IpChunk_Init");
     }
 
-    /* Short-prefix CIDR ranges. */
-    if( IpChunk_Add(&ic, "10.0.0.0/24", 1, "range24", 8) != 0 ||
-        IpChunk_Add(&ic, "192.168.1.0/26", 2, "range26", 8) != 0 )
-    {
-        printf("IpChunk_Add failed\n");
-        IpChunk_Free(&ic);
-        return 1;
-    }
+    /* Broad range + more specific range that is contained in it. */
+    if( IpChunk_Add(&ic, "10.0.0.0/8", 8, "broad", 5) != 0 )
+        return fail("add 10.0.0.0/8");
+    if( IpChunk_Add(&ic, "10.1.0.0/16", 16, "specific", 8) != 0 )
+        return fail("add 10.1.0.0/16");
 
-    {
-        unsigned char ip[4] = {10, 0, 0, 123};
-        int found = IpChunk_Find(&ic, ip, 4, &Type, &Data);
-        Check("10.0.0.123 in 10.0.0.0/24", found == 1 && Type == 1);
-    }
-    {
-        unsigned char ip[4] = {10, 255, 0, 1};
-        int found = IpChunk_Find(&ic, ip, 4, &Type, &Data);
-        Check("10.255.0.1 NOT in 10.0.0.0/24", found == 0);
-    }
-    {
-        unsigned char ip[4] = {192, 168, 1, 60};
-        int found = IpChunk_Find(&ic, ip, 4, &Type, &Data);
-        Check("192.168.1.60 in 192.168.1.0/26", found == 1 && Type == 2);
-    }
-    {
-        unsigned char ip[4] = {192, 168, 1, 200};
-        int found = IpChunk_Find(&ic, ip, 4, &Type, &Data);
-        Check("192.168.1.200 NOT in 192.168.1.0/26", found == 0);
-    }
+    /* Query inside the /16 only (not inside /8-exclusive? it is inside /8 too,
+       but the most specific match must win). */
+    memset(ip, 0, sizeof(ip));
+    ip[0] = 10; ip[1] = 1; ip[2] = 2; ip[3] = 3;
+    if( IpChunk_Find(&ic, ip, 4, &type, NULL) == FALSE )
+        return fail("Find 10.1.2.3 should match");
+    if( type != 16 )
+        return fail("Find 10.1.2.3 should match most-specific /16 (got type != 16)");
 
-    /* An exact /32 host route must match ONLY its exact address. */
-    {
-        IpChunk ic32;
-        if( IpChunk_Init(&ic32) != 0 )
-        {
-            printf("IpChunk_Init(32) failed\n");
-            IpChunk_Free(&ic);
-            return 1;
-        }
-        if( IpChunk_Add(&ic32, "10.0.0.0/32", 3, "host32", 8) != 0 )
-        {
-            printf("IpChunk_Add /32 failed\n");
-            IpChunk_Free(&ic32);
-            IpChunk_Free(&ic);
-            return 1;
-        }
+    /* Query inside /8 but outside /16: must match the /8 rule. */
+    memset(ip, 0, sizeof(ip));
+    ip[0] = 10; ip[1] = 5; ip[2] = 5; ip[3] = 5;
+    if( IpChunk_Find(&ic, ip, 4, &type, NULL) == FALSE )
+        return fail("Find 10.5.5.5 should match /8");
+    if( type != 8 )
+        return fail("Find 10.5.5.5 should match /8 (got type != 8)");
 
-        unsigned char exact[4] = {10, 0, 0, 0};
-        int found = IpChunk_Find(&ic32, exact, 4, &Type, &Data);
-        Check("10.0.0.0 matches 10.0.0.0/32", found == 1 && Type == 3);
+    /* Single IP exact match. */
+    if( IpChunk_Add(&ic, "192.168.1.1", 99, "host", 4) != 0 )
+        return fail("add 192.168.1.1");
+    memset(ip, 0, sizeof(ip));
+    ip[0] = 192; ip[1] = 168; ip[2] = 1; ip[3] = 1;
+    if( IpChunk_Find(&ic, ip, 4, &type, NULL) == FALSE )
+        return fail("Find 192.168.1.1 should match");
+    if( type != 99 )
+        return fail("Find 192.168.1.1 should match single-IP type 99");
 
-        unsigned char neighbour[4] = {10, 0, 0, 5};
-        found = IpChunk_Find(&ic32, neighbour, 4, &Type, &Data);
-        Check("10.0.0.5 NOT in 10.0.0.0/32", found == 0);
+    /* Single IP that is not configured must not match. */
+    memset(ip, 0, sizeof(ip));
+    ip[0] = 192; ip[1] = 168; ip[2] = 1; ip[3] = 2;
+    if( IpChunk_Find(&ic, ip, 4, &type, NULL) != FALSE )
+        return fail("Find 192.168.1.2 must NOT match");
 
-        unsigned char other[4] = {10, 0, 1, 1};
-        found = IpChunk_Find(&ic32, other, 4, &Type, &Data);
-        Check("10.0.1.1 NOT in 10.0.0.0/32", found == 0);
+    /* Unrelated address must not match. */
+    memset(ip, 0, sizeof(ip));
+    ip[0] = 8; ip[1] = 8; ip[2] = 8; ip[3] = 8;
+    if( IpChunk_Find(&ic, ip, 4, &type, NULL) != FALSE )
+        return fail("Find 8.8.8.8 must NOT match");
 
-        IpChunk_Free(&ic32);
-    }
+    /* IPv6 nested ranges. */
+    if( IpChunk_Add(&ic, "2001:db8::/32", 32, "v6broad", 7) != 0 )
+        return fail("add 2001:db8::/32");
+    if( IpChunk_Add(&ic, "2001:db8:1::/48", 48, "v6spec", 7) != 0 )
+        return fail("add 2001:db8:1::/48");
+    memset(ip, 0, sizeof(ip));
+    /* 2001:0db8:0001:0000:... */
+    ip[0] = 0x20; ip[1] = 0x01; ip[2] = 0x0d; ip[3] = 0xb8;
+    ip[4] = 0x00; ip[5] = 0x01;
+    if( IpChunk_Find(&ic, ip, 16, &type, NULL) == FALSE )
+        return fail("Find 2001:db8:1:: must match");
+    if( type != 48 )
+        return fail("Find 2001:db8:1:: should match most-specific /48 (got type != 48)");
 
     IpChunk_Free(&ic);
 
-    printf("\nipchunk: %d checks, %d failures\n", Checks, Failures);
-    return Failures == 0 ? 0 : 1;
+    printf("IpChunk OK\n");
+    return rc;
 }

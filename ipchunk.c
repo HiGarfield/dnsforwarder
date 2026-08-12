@@ -168,15 +168,21 @@ static int Contain(IpElement *New, IpElement *Elm)
         unsigned char *be = ipAddrElm->Addr;
         int prefixBitsNew = ipSetNew->PrefixBits;
         int prefixBitsElm = ipSetElm->PrefixBits;
+        /* Compare networks masked to the SHORTER of the two prefix lengths.
+           Masking to only the longer (existing) prefix previously discarded
+           the bytes where two ranges differ (e.g. 10.0.0.0/8 vs 10.1.0.0/16),
+           so they compared equal and one range was silently dropped during
+           Bst_Add. */
+        int cmpBits = prefixBitsNew < prefixBitsElm ? prefixBitsNew : prefixBitsElm;
         int ret = 0;
 
-        /* 2nd: prefix value */
         if( BitsElm == 32 )
         {
             bn += 12;
             be += 12;
         }
-        for(; prefixBitsElm >= 32; prefixBitsElm -= 32)
+
+        while( cmpBits >= 32 )
         {
             ret = memcmp(bn, be, 4);
             if( ret != 0 )
@@ -185,32 +191,39 @@ static int Contain(IpElement *New, IpElement *Elm)
             }
             bn += 4;
             be += 4;
+            cmpBits -= 32;
         }
-        if( prefixBitsElm > 0 ) {
+        if( cmpBits > 0 )
+        {
             uint32_t u32New, u32Elm, mask;
-            mask = htonl(~(~0U >> prefixBitsElm));
+            mask = htonl(~(~0U >> cmpBits));
             u32New = *(uint32_t *)bn & mask;
             u32Elm = *(uint32_t *)be & mask;
-            ret = memcmp(&u32New, &u32Elm, 4);
+            ret = (u32New > u32Elm) - (u32New < u32Elm);
         }
 
-        /* 3rd: prefix bits */
-        if( ret == 0 && prefixBitsNew < prefixBitsElm)
-        {
-            ret = 1;
-        }
-
-        /* 4th: zone */
+        /* Same network prefix: order by prefix length so two distinct ranges
+           that share a network become distinct BST nodes (no false duplicate
+           or data loss). */
         if( ret == 0 )
         {
+            if( prefixBitsNew != prefixBitsElm )
+            {
+                return (prefixBitsNew > prefixBitsElm) - (prefixBitsNew < prefixBitsElm);
+            }
+
+            /* Exact same network and prefix: distinguish by zone. */
             if( IpAddr_HasZone(ipAddrElm) )
             {
                 if( IpAddr_HasZone(ipAddrNew) )
                 {
                     return strcmp(ipAddrNew->Zone, ipAddrElm->Zone);
-                } else {
-                    return 1;
                 }
+                return 1;
+            }
+            else if( IpAddr_HasZone(ipAddrNew) )
+            {
+                return -1;
             }
         }
 
@@ -315,6 +328,8 @@ BOOL IpChunk_Find(IpChunk *ic, unsigned char *Ip, int IpBytes, int *Type, const 
 {
     IpElement   Key;
     const IpElement *Result = NULL;
+    int totalBits;
+    int L;
 
     if( ic == NULL )
     {
@@ -325,11 +340,11 @@ BOOL IpChunk_Find(IpChunk *ic, unsigned char *Ip, int IpBytes, int *Type, const 
     {
     case 4:
         IpAddr_From4(Ip, &(Key.IpSet.Ip));
-        Key.IpSet.PrefixBits = 32;
+        totalBits = 32;
         break;
     case 16:
         IpAddr_From6(Ip, &(Key.IpSet.Ip));
-        Key.IpSet.PrefixBits = 128;
+        totalBits = 128;
         break;
     default:
         return FALSE;
@@ -338,10 +353,25 @@ BOOL IpChunk_Find(IpChunk *ic, unsigned char *Ip, int IpBytes, int *Type, const 
     Key.Type = 0;
     Key.Data = NULL;
 
+    /* Exact single-IP match first. */
+    Key.IpSet.PrefixBits = totalBits;
     Result = ic->AddrChunk.Search(&(ic->AddrChunk), &Key, NULL);
     if( Result == NULL )
     {
-        Result = ic->CidrChunk.Search(&(ic->CidrChunk), &Key, NULL);
+        /* Longest-prefix match against the CIDR chunk. The comparator now
+           orders ranges by (network, prefix length), so a query is contained
+           in a stored CIDR exactly when the key built with that CIDR's prefix
+           length compares equal. Search from the full address downwards so the
+           most specific (longest) matching range wins. */
+        for( L = totalBits; L >= 0; --L )
+        {
+            Key.IpSet.PrefixBits = L;
+            Result = ic->CidrChunk.Search(&(ic->CidrChunk), &Key, NULL);
+            if( Result != NULL )
+            {
+                break;
+            }
+        }
     }
 
     if( Result == NULL )

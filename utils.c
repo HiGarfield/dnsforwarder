@@ -112,7 +112,7 @@ int GetModulePath(char *Buffer, int BufferLength)
     char    ModuleName[320];
     char    *SlashPosition;
 
-    if( BufferLength < 0 )
+    if( BufferLength <= 0 )
         return 0;
 
     ModuleNameLength = GetModuleFileName(NULL, ModuleName, sizeof(ModuleName) - 1);
@@ -768,6 +768,17 @@ int GetTextFileContent(const char *File, char *Content, size_t MaxLength)
     FILE *fp = fopen(File, "rb");
     size_t written = 0;
     int c = 0;
+
+    /* A zero-length buffer cannot hold even the terminating NUL; writing
+       Content[0] would be an out-of-bounds write. */
+    if( MaxLength == 0 )
+    {
+        if( fp != NULL )
+        {
+            fclose(fp);
+        }
+        return 0;
+    }
 
     if( fp == NULL )
     {

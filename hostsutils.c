@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include "hostsutils.h"
 #include "ipchunk.h"
 #include "dnsgenerator.h"
@@ -193,9 +194,18 @@ HostsUtilsTryResult HostsUtils_Try(MsgContext *MsgCtx,
     {
         DnsGenerator g;
 
-        char *HereToGenerate = RequestEntity + Header->EntityLength;
+        /* The answer is generated into a scratch region immediately after the
+           (often odd-length) request.  RequestEntity is 8-byte aligned, but
+           Header->EntityLength is the client's request length and is frequently
+           odd, so HereToGenerate can land on a 2-/4-byte boundary and the
+           DNSHeader overlay used by the generator becomes misaligned (undefined
+           behaviour, caught by UBSan).  Align the scratch pointer up to an
+           8-byte boundary; the finished answer is memmove()'d back onto the
+           aligned RequestEntity before being sent, so wire output is unchanged. */
+        char *HereToGenerate =
+            (char *)(((uintptr_t)(RequestEntity + Header->EntityLength) + 7) & ~(uintptr_t)7);
         int LeftBufferLength =
-                          BufferLength - sizeof(IHeader) - Header->EntityLength;
+                          BufferLength - sizeof(IHeader) - (int)(HereToGenerate - RequestEntity);
 
         int ResultLength;
 

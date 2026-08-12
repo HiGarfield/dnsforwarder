@@ -59,6 +59,11 @@ struct _DnsGenerator {
 
     int (*Length)(const DnsGenerator *g);
 
+    /* Section the record counter currently points at. Needed to test where a
+       generator starts before blindly advancing with NextPurpose(), which
+       cannot walk backwards and reports UNKNOWN once it has stepped past the
+       additional-record counter. */
+    DnsRecordPurpose (*CurrentPurpose)(DnsGenerator *g);
     DnsRecordPurpose (*NextPurpose)(DnsGenerator *g);
     void (*CopyHeader)(DnsGenerator *g,
                        const char *Source,

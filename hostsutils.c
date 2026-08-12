@@ -235,7 +235,13 @@ HostsUtilsTryResult HostsUtils_Try(MsgContext *MsgCtx,
 
         if( Header->EDNSEnabled )
         {
-            while( g.NextPurpose(&g) != DNS_RECORD_PURPOSE_ADDITIONAL );
+            while( g.CurrentPurpose(&g) != DNS_RECORD_PURPOSE_ADDITIONAL )
+            {
+                if( g.NextPurpose(&g) == DNS_RECORD_PURPOSE_UNKNOWN )
+                {
+                    return HOSTSUTILS_TRY_NONE;
+                }
+            }
             if( g.EDns(&g, 1280) != 0 )
             {
                 return HOSTSUTILS_TRY_NONE;
@@ -425,7 +431,13 @@ int HostsUtils_CombineRecursedResponse(MsgContext   *Buffer,
 
     if( NewHeader->EDNSEnabled )
     {
-        while( g.NextPurpose(&g) != DNS_RECORD_PURPOSE_ADDITIONAL );
+        while( g.CurrentPurpose(&g) != DNS_RECORD_PURPOSE_ADDITIONAL )
+        {
+            if( g.NextPurpose(&g) == DNS_RECORD_PURPOSE_UNKNOWN )
+            {
+                return -351;
+            }
+        }
 
         if( g.EDns(&g, 1280) != 0 )
         {

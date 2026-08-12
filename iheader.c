@@ -141,7 +141,27 @@ int MsgContext_AddFakeEdns(MsgContext *MsgCtx, int BufferLength)
         return -125;
     }
 
-    while( g.NextPurpose(&g) != DNS_RECORD_PURPOSE_ADDITIONAL );
+    /* DnsGenerator_Init() leaves the record counter on the *last non-empty*
+       section of the copied request. When the request already carries
+       additional records that section is ADDITIONAL, so there is nothing to
+       advance: NextPurpose() would step past the additional-record counter and
+       report UNKNOWN from then on, without ever moving again. The former
+       unconditional `while( g.NextPurpose(&g) != ADDITIONAL );' therefore span
+       forever at 100% CPU, wedging the frontend thread that called
+       UdpM_Send(). A query with ARCOUNT > 0 whose additional section holds no
+       OPT record (or is simply absent, since IHeader_Fill() tolerates a
+       truncated additional section) is enough to trigger it whenever "AP" is
+       enabled.
+
+       Test the current section first and stop if the counter is not where it
+       should be. */
+    while( g.CurrentPurpose(&g) != DNS_RECORD_PURPOSE_ADDITIONAL )
+    {
+        if( g.NextPurpose(&g) == DNS_RECORD_PURPOSE_UNKNOWN )
+        {
+            return -126;
+        }
+    }
 
     g.EDns(&g, 1280);
 

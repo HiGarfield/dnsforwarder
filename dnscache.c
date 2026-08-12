@@ -1036,7 +1036,13 @@ int DNSCache_FetchFromCache(MsgContext *MsgCtx, int BufferLength)
      */
     if( h->EDNSEnabled )
     {
-        while( g.NextPurpose(&g) != DNS_RECORD_PURPOSE_ADDITIONAL );
+        while( g.CurrentPurpose(&g) != DNS_RECORD_PURPOSE_ADDITIONAL )
+        {
+            if( g.NextPurpose(&g) == DNS_RECORD_PURPOSE_UNKNOWN )
+            {
+                return -4;
+            }
+        }
         if( g.EDns(&g, 1280) != 0 )
         {
             return -4;

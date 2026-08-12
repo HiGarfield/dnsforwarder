@@ -989,6 +989,7 @@ int DnsGenerator_Init(DnsGenerator *g,
     }
 
     g->Length = DnsGenerator_Length;
+    g->CurrentPurpose = DnsGenerator_CurrentPurpose;
     g->NextPurpose = DnsGenerator_NextPurpose;
 
     g->CopyHeader = DnsGenerator_CopyHeader;

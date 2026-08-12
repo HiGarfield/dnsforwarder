@@ -43,7 +43,9 @@ Log 3
 UseCache true
 MemoryCache true
 CacheSize 1048576
-UseHosts false
+UseHosts true
+AppendHosts 127.0.0.2 hosts.example.com
+AppendHosts ::1 aaaa.example.com
 UDPLocal 127.0.0.1:$PORT
 TCPLocal 127.0.0.1:$PORT
 UDPGroup 127.0.0.1:$UPPORT * on
@@ -123,6 +125,10 @@ while time.time() < deadline:
     n = 'w%d.example.com' % random.randrange(20)
     body = struct.pack('>HHHHHH', random.randrange(65536), 0x0100, 1, 0, 0, 0) \
         + qname(n) + struct.pack('>HH', 1, 1)
+    send_udp(body)
+    # Exercise the hosts answer-generation path too.
+    body = struct.pack('>HHHHHH', random.randrange(65536), 0x0100, 1, 0, 0, 0) \
+        + qname('hosts.example.com') + struct.pack('>HH', 1, 1)
     send_udp(body)
 print("client load done", flush=True)
 PY

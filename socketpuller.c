@@ -93,10 +93,14 @@ PUBFUNC SOCKET SocketPuller_Select(SocketPuller *p,
     SOCKET s;
     int Err = 0;
 
-    ReadySet = p->s;
-
     while( TRUE )
     {
+        /* Re-copy the full descriptor set on every attempt. select() is
+           allowed to modify its fd_set arguments even when it returns an
+           error (e.g. EINTR), so reusing a possibly-clobbered ReadySet on a
+           retry would scan a corrupt set. Re-initialising here keeps the
+           retry path portable and correct. */
+        ReadySet = p->s;
 
         switch( select(p->Max + 1,
                        Reading ? &ReadySet : NULL,

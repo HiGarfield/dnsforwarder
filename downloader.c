@@ -228,7 +228,13 @@ int GetFromInternet_Base(const char *URL, const char *File)
     fp = fopen(File, "wb" );
     if( fp == NULL )
     {
-        ret = -1 * (int)GetLastError();
+        /* fopen() is a CRT call and reports failure via errno, not
+           GetLastError(); the latter is left at whatever the last Win32 API
+           set, often 0. Returning -1 * GetLastError() could therefore yield 0,
+           which the caller treats as a SUCCESSFUL download and may overwrite
+           the real hosts file with an empty temp. Use a fixed non-zero error
+           code, matching the POSIX branches. */
+        ret = -1;
         goto Exit_2;
     }
 

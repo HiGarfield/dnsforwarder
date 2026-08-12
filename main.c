@@ -503,17 +503,23 @@ int main(int argc, char *argv[])
 
     int UdpStatus, TcpStatus;
 
-#if !defined(NODOWNLOAD) && defined(DOWNLOAD_LIBCURL)
-    curl_global_init(CURL_GLOBAL_ALL);
-    atexit(curl_global_cleanup);
-#else
 #ifdef _WIN32
+    /* Winsock must be initialised on Windows regardless of which download
+       backend is compiled in: the forwarder itself (frontends, mmgr, hosts,
+       socketpuller) uses socket()/bind()/select() directly. The previous code
+       only called WSAStartup inside the non-libcurl #else branch, so a Win32
+       build with -DDOWNLOAD_LIBCURL would skip it and every Winsock call would
+       fail with WSANOTINITIALISED. */
     if( WSAStartup(MAKEWORD(2, 2), &wdata) != 0 )
     {
         return -244;
     }
     atexit(CleanupWSA);
 #endif /* _WIN32 */
+
+#if !defined(NODOWNLOAD) && defined(DOWNLOAD_LIBCURL)
+    curl_global_init(CURL_GLOBAL_ALL);
+    atexit(curl_global_cleanup);
 #endif
 
 #ifdef _WIN32

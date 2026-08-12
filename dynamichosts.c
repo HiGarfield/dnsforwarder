@@ -47,8 +47,17 @@ static void DynamicHosts_Cleanup(void)
        lock here would let the thread lock a freed lock (undefined behaviour).
        The OS reclaims the lock's resources when the process exits, so simply
        leaving it untouched is both safe and sufficient. */
+    /* Free the container under the write lock. The read path
+       (DynamicHosts_Try/GetCName/TypeExisting) takes RWLock_RdLock(HostsLock)
+       before dereferencing MainDynamicContainer, so doing the free without the
+       lock would let a reader still inside its critical section dereference a
+       freed container (use-after-free) if atexit fires while a request thread
+       is mid-lookup. HostsLock itself is intentionally left intact (see above). */
+    RWLock_WrLock(HostsLock);
     DynamicHosts_ContainerCleanup((HostsContainer *)MainDynamicContainer);
     MainDynamicContainer = NULL;
+    RWLock_UnWLock(HostsLock);
+
     FreeCharPtrArray(HostsURLs);
     HostsURLs = NULL;
 }

@@ -782,7 +782,18 @@ static int DNSCache_GetRawRecordsFromCache(__in    const char *Name,
             {
                 NewTTL = Node->TTL;
             } else {
-                NewTTL = Node->TTL - (CurrentTime - Node->TimeAdded);
+                /* Saturating subtraction: both operands are unsigned, and
+                   between the freshness check above and here wall-clock time
+                   may have advanced past the node's TTL, which would wrap to a
+                   near-infinite value under modular arithmetic.  Clamp at 0 so
+                   an expired entry cannot be served with a huge TTL.  Mirrors
+                   the handling in DNSCache_CacheMinTTL(). */
+                if( (uint32_t)(CurrentTime - Node->TimeAdded) >= Node->TTL )
+                {
+                    NewTTL = 0;
+                } else {
+                    NewTTL = Node->TTL - (uint32_t)(CurrentTime - Node->TimeAdded);
+                }
             }
 
             /* Skip key to get data */
@@ -933,7 +944,15 @@ static int DNSCache_GetByQuestion(__inout DnsGenerator *g,
             {
                 NewTTL = Node->TTL;
             } else {
-                NewTTL = Node->TTL - (CurrentTime - Node->TimeAdded);
+                /* Saturating subtraction (see DNSCache_GetRawRecordsFromCache
+                   for the rationale): clamp at 0 if the node has since expired
+                   so we never emit a near-infinite TTL. */
+                if( (uint32_t)(CurrentTime - Node->TimeAdded) >= Node->TTL )
+                {
+                    NewTTL = 0;
+                } else {
+                    NewTTL = Node->TTL - (uint32_t)(CurrentTime - Node->TimeAdded);
+                }
             }
 
             if( g->CName(g, "a", CName, NewTTL) != 0 )

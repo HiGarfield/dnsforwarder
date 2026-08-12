@@ -1,5 +1,6 @@
 #include <string.h>
 #include <math.h>
+#include <stdint.h>
 #include "cacheht.h"
 #include "common.h"
 #include "utils.h"
@@ -47,6 +48,16 @@ int CacheHT_Init(CacheHT *h, char *BaseAddr, int CacheSize)
     h->Slots.Used = CacheHT_CalculateSlotCount(CacheSize);
     h->Slots.DataLength = sizeof(Cht_Slot);
     h->Slots.Data = BaseAddr + CacheSize - (h->Slots.DataLength) * (h->Slots.Used);
+
+    /* The slot table (and therefore the node chunk that grows downward from it)
+       is placed at BaseAddr + CacheSize - sizeof(Cht_Slot) * Used.  Used is
+       always odd (CacheHT_CalculateSlotCount ends in 7), so this sits at a
+       4-byte offset, leaving every overlaid Cht_Node / Cht_2DList (which carry
+       8-byte int64_t members and thus require 8-byte alignment) misaligned.
+       Align the base down to 8 bytes so all cache node accesses are well
+       defined instead of invoking undefined behaviour. */
+    h->Slots.Data = (char *)((uintptr_t)h->Slots.Data & ~(uintptr_t)7);
+
     h->Slots.Allocated = h->Slots.Used;
 
     for(loop = 0; loop < h->Slots.Allocated; ++loop)
@@ -67,6 +78,8 @@ int CacheHT_Init(CacheHT *h, char *BaseAddr, int CacheSize)
 int CacheHT_ReInit(CacheHT *h, char *BaseAddr, int CacheSize)
 {
     h->Slots.Data = BaseAddr + CacheSize - (h->Slots.DataLength) * (h->Slots.Used);
+    /* Keep the slot/node base aligned to 8 bytes (see CacheHT_Init). */
+    h->Slots.Data = (char *)((uintptr_t)h->Slots.Data & ~(uintptr_t)7);
     h->NodeChunk.Data = h->Slots.Data - h->NodeChunk.DataLength;
 
     return 0;

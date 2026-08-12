@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 #include <time.h>
 #include "dnscache.h"
 #include "dnsgenerator.h"
@@ -986,8 +987,17 @@ int DNSCache_FetchFromCache(MsgContext *MsgCtx, int BufferLength)
     DnsSimpleParser p;
     DnsGenerator g;
 
-    char *HereToGenerate = RequestContent + h->EntityLength;
-    int LeftBufferLength = BufferLength - sizeof(IHeader) - h->EntityLength;
+    /* The response is generated into a scratch region immediately following the
+       request.  RequestContent is 8-byte aligned, but h->EntityLength is the
+       client's request length and is frequently odd (ordinary domain names), so
+       HereToGenerate can land on a 2-/4-byte boundary.  The DNSHeader overlay
+       used by the generator would then be misaligned, which is undefined
+       behaviour on strict-alignment platforms and trips UBSan everywhere.  Align
+       the scratch pointer up to an 8-byte boundary; the finished response is
+       memmove()'d back onto the aligned RequestContent before being sent, so the
+       shift is invisible to clients and does not change wire output. */
+    char *HereToGenerate = (char *)(((uintptr_t)(RequestContent + h->EntityLength) + 7) & ~(uintptr_t)7);
+    int LeftBufferLength = BufferLength - sizeof(IHeader) - (int)(HereToGenerate - RequestContent);
 
     int ResultLength;
 

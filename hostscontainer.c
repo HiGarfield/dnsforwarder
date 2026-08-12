@@ -126,6 +126,13 @@ PUBFUNC const void *HostsContainer_Find(HostsContainer  *Container,
     if( IP == NULL )
     {
         IP = IP4to6;
+        if( IP != NULL )
+        {
+            /* No AAAA record exists; we fell back to an A record, so the
+               generated answer must be reported as an A record. Otherwise the
+               caller emits a forged AAAA record from the IPv4 address bytes. */
+            Type = IP->Type;
+        }
     }
 
     if( IP != NULL )
@@ -323,7 +330,12 @@ PRIFUNC int HostsContainer_AddIP(HostsContainer *Container,
 {
     IpAddr ipAddr;
 
-    IpAddr_Parse(IP, &ipAddr);
+    if( IpAddr_Parse(IP, &ipAddr) != 0 )
+    {
+        /* Invalid IP literal: IpAddr_Parse leaves ipAddr partly/uninitialized
+           while still marking it as a valid address, so do not store it. */
+        return -1;
+    }
 
     return HostsContainer_AddNode(Container,
                                   Domain,

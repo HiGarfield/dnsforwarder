@@ -729,28 +729,40 @@ TcpM_Works(TcpM *m)
 
             p->Del(p, s);
 
-            State = TcpM_RecvWrapper(s, (char *)&TCPLength, 2);
-            if( State != 2 )
+            /* Read the 2-byte TCP length prefix. On a non-blocking socket the
+               two bytes can arrive in separate segments, so keep reading until
+               both are present instead of treating a single-byte read as bad
+               data (which previously closed otherwise-valid connections). */
             {
-                if( State < 1 )
+                int Got = 0;
+                char *Cur = (char *)&TCPLength;
+
+                while( Got < 2 )
                 {
-                    /* If Server force closed the keep-alive SOCKET: */
-                    IHeader *Header2 = (IHeader *)Ctx.MsgCtx;
-                    if( Ctx.Queried > 1 && Header2 != NULL && *(Header2->Domain) != 0 &&
-                        Ctx.MsgCtxQid == DNSGetQueryIdentifier(Header2 + 1) &&
-                        Ctx.MsgCtxHash == Header2->HashValue
-                        )
+                    State = TcpM_RecvWrapper(s, Cur, 2 - Got);
+                    if( State < 1 )
                     {
-                        INFO("TCP retrying for %s ...\n", Header2->Domain);
-                        TcpM_Send_Actual(m, Ctx.MsgCtx, Ctx.ServerIndex);
+                        /* If Server force closed the keep-alive SOCKET: */
+                        IHeader *Header2 = (IHeader *)Ctx.MsgCtx;
+                        if( Ctx.Queried > 1 && Header2 != NULL && *(Header2->Domain) != 0 &&
+                            Ctx.MsgCtxQid == DNSGetQueryIdentifier(Header2 + 1) &&
+                            Ctx.MsgCtxHash == Header2->HashValue
+                            )
+                        {
+                            INFO("TCP retrying for %s ...\n", Header2->Domain);
+                            TcpM_Send_Actual(m, Ctx.MsgCtx, Ctx.ServerIndex);
+                        }
+                        CLOSE_SOCKET(s);
+                        Got = -1;
+                        break;
                     }
-                } else if( State == 1 )
-                {
-                    WARNING("TCP %s received bad data.\n",
-                            m->SocksProxies != NULL ? "proxy" : "server");
+                    Cur += State;
+                    Got += State;
                 }
-                CLOSE_SOCKET(s);
-                continue;
+                if( Got < 0 )
+                {
+                    continue;
+                }
             }
 
             TCPLength = ntohs(TCPLength);

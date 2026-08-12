@@ -155,7 +155,13 @@ void Array_Sort(Array *a, int (*Compare)(const void *, const void *))
 {
     if( a->Allocated < 0 )
     {
-        qsort(a->Data - (a->Used * a->DataLength), a->Used, a->DataLength, Compare);
+        /* Grow-down array: subscript 0 lives at the highest address (a->Data)
+           and subscript (Used - 1) at the lowest, so the contiguous block of
+           Used elements starts (lowest address) at
+           a->Data - (Used - 1) * DataLength. The old base
+           a->Data - Used * DataLength read one element below the region
+           (buffer underflow) and silently dropped the element stored at a->Data. */
+        qsort(a->Data - (a->Used - 1) * a->DataLength, a->Used, a->DataLength, Compare);
     } else {
         qsort(a->Data, a->Used, a->DataLength, Compare);
     }

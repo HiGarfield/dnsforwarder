@@ -426,7 +426,7 @@ static void TimedTask_Cleanup(void)
     {
         /* Write a wake-up byte so select() returns even when idle. */
         char Dummy = 0;
-        WRITE_PIPE(WriteTo, &Dummy, sizeof(Dummy));
+        (void)WRITE_PIPE(WriteTo, &Dummy, sizeof(Dummy));
     }
 #endif /* _WIN32 */
 

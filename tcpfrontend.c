@@ -28,7 +28,7 @@ static SocketPuller Frontend;
  * are still in flight per socket and defer the close until they have all
  * drained.
  */
-static pthread_mutex_t TcpSocketOwnershipLock = PTHREAD_MUTEX_INITIALIZER;
+static EFFECTIVE_LOCK TcpSocketOwnershipLock;
 static int  TcpSocketInFlight[FD_SETSIZE];
 static BOOL TcpSocketGone[FD_SETSIZE];
 
@@ -38,9 +38,9 @@ static void TcpFrontend_MarkDispatched(SOCKET s)
     {
         return;
     }
-    pthread_mutex_lock(&TcpSocketOwnershipLock);
+    EFFECTIVE_LOCK_GET(TcpSocketOwnershipLock);
     TcpSocketInFlight[s]++;
-    pthread_mutex_unlock(&TcpSocketOwnershipLock);
+    EFFECTIVE_LOCK_RELEASE(TcpSocketOwnershipLock);
 }
 
 void TcpFrontend_ReleaseSocket(SOCKET s)
@@ -49,7 +49,7 @@ void TcpFrontend_ReleaseSocket(SOCKET s)
     {
         return;
     }
-    pthread_mutex_lock(&TcpSocketOwnershipLock);
+    EFFECTIVE_LOCK_GET(TcpSocketOwnershipLock);
     if( TcpSocketInFlight[s] > 0 )
     {
         TcpSocketInFlight[s]--;
@@ -60,7 +60,7 @@ void TcpFrontend_ReleaseSocket(SOCKET s)
         TcpSocketGone[s] = FALSE;
         TcpSocketInFlight[s] = 0;
     }
-    pthread_mutex_unlock(&TcpSocketOwnershipLock);
+    EFFECTIVE_LOCK_RELEASE(TcpSocketOwnershipLock);
 }
 
 /* The client side has gone away. Close the socket only if no query dispatched
@@ -73,7 +73,7 @@ static void TcpFrontend_ClientGone(SOCKET s)
     {
         return;
     }
-    pthread_mutex_lock(&TcpSocketOwnershipLock);
+    EFFECTIVE_LOCK_GET(TcpSocketOwnershipLock);
     if( TcpSocketInFlight[s] == 0 )
     {
         CLOSE_SOCKET(s);
@@ -84,7 +84,7 @@ static void TcpFrontend_ClientGone(SOCKET s)
     {
         TcpSocketGone[s] = TRUE;
     }
-    pthread_mutex_unlock(&TcpSocketOwnershipLock);
+    EFFECTIVE_LOCK_RELEASE(TcpSocketOwnershipLock);
 }
 
 /*
@@ -193,10 +193,10 @@ TcpFrontend_Work(void *Unused)
                reused) -- otherwise this write races TcpFrontend_ReleaseSocket. */
             if( sock_c < FD_SETSIZE )
             {
-                pthread_mutex_lock(&TcpSocketOwnershipLock);
+                EFFECTIVE_LOCK_GET(TcpSocketOwnershipLock);
                 TcpSocketInFlight[sock_c] = 0;
                 TcpSocketGone[sock_c] = FALSE;
-                pthread_mutex_unlock(&TcpSocketOwnershipLock);
+                EFFECTIVE_LOCK_RELEASE(TcpSocketOwnershipLock);
             }
 
             if( Frontend.Add(&Frontend,
@@ -362,6 +362,8 @@ void TcpFrontend_StartWork(void)
 
 static void TcpFrontend_Cleanup(void)
 {
+    EFFECTIVE_LOCK_DESTROY(TcpSocketOwnershipLock);
+
     /* Do NOT free the global Frontend here: TcpFrontend_Work is a detached
        thread blocked in Frontend.Select() and may still read Frontend's
        internals (socket list, BST array) when atexit runs, which would be a
@@ -393,6 +395,8 @@ int TcpFrontend_Init(ConfigFileInfo *ConfigInfo, BOOL StartWork)
     {
         return -19;
     }
+
+    EFFECTIVE_LOCK_INIT(TcpSocketOwnershipLock);
 
     while( (One = i.Next(&i)) != NULL )
     {

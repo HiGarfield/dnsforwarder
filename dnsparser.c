@@ -615,6 +615,32 @@ static char *DnsSimpleParserIterator_Next(DnsSimpleParserIterator *i)
             i->RecordPosition = 0;
             return NULL;
         }
+
+        /* Derive the RDATA position and length from AfterName, which is
+           guaranteed to lie inside the message.  The previous code re-derived
+           the position with the unsafe DNSJumpOverName()/DNSGetResourceDataPos()
+           macros, which can return a pointer OUTSIDE the message when a
+           compression pointer redirects before the message start.  The bounds
+           test "RDataPos + DataLength > End" then compared pointers from two
+           different objects -- undefined behaviour whose result is
+           unpredictable -- and a crafted RDLENGTH could slip through, letting
+           ToCacheData()/TextifyData() read far past the end of the packet. */
+        if( i->Purpose == DNS_RECORD_PURPOSE_QUESTION )
+        {
+            /* Questions carry no RDATA; keep DataLength well defined. */
+            i->DataLength = 0;
+        }
+        else
+        {
+            i->DataLength = GET_16_BIT_U_INT(AfterName + 8);
+
+            if( AfterName + 10 + i->DataLength > End )
+            {
+                i->CurrentPosition = NULL;
+                i->RecordPosition = 0;
+                return NULL;
+            }
+        }
     }
 
     i->Type = DNSGetRecordType(i->CurrentPosition);
@@ -625,23 +651,6 @@ static char *DnsSimpleParserIterator_Next(DnsSimpleParserIterator *i)
         i->Klass != DNS_CLASS_UNKNOWN
       )
     {
-        if( i->Purpose != DNS_RECORD_PURPOSE_QUESTION )
-        {
-            i->DataLength = DNSGetResourceDataLength(i->CurrentPosition);
-
-            /* The RDATA must stay inside the message. A lying RDLENGTH
-               would otherwise let subsequent parsers read past the end
-               of the packet. */
-            const char *RDataPos = DNSGetResourceDataPos(i->CurrentPosition);
-            if( RDataPos == NULL ||
-                RDataPos + i->DataLength > i->Parser->RawDns + i->Parser->RawDnsLength )
-            {
-                i->CurrentPosition = NULL;
-                i->RecordPosition = 0;
-                return NULL;
-            }
-        }
-
         return i->CurrentPosition;
     } else {
         i->CurrentPosition = NULL;

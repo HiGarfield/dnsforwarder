@@ -11,7 +11,7 @@ extern BOOL Ipv6_Enabled;
 
 static BOOL BlockIpv6WhenIpv4Exists = FALSE;
 
-static SOCKET   InnerSocket;
+static SOCKET   InnerSocket = INVALID_SOCKET;
 static Address_Type InnerAddress;
 static SocketPuller Puller;
 
@@ -232,6 +232,15 @@ Hosts_SocketLoop(void *Unused)
 
             if( State < 1 )
             {
+                continue;
+            }
+
+            if( State < (int)sizeof(IHeader) )
+            {
+                /* A truncated datagram cannot carry a whole IHeader.  Anything
+                   past `State` is leftover/uninitialized stack, so Domain would
+                   not be NUL-terminated and Hosts_GetCName() would read (and
+                   copy) indeterminate bytes.  Drop the datagram instead. */
                 continue;
             }
 

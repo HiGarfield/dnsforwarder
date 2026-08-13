@@ -9,16 +9,29 @@
    compute `Count * ElemSize` in `int` arithmetic and then widen it to `size_t`.
    When the product exceeded INT_MAX it wrapped to a small (or zero) value, so
    SafeMalloc()/SafeRealloc() was handed a far-too-small buffer and the
-   subsequent memcpy()/memset() overflowed the heap. */
+   subsequent memcpy()/memset() overflowed the heap.
+
+   We additionally refuse any request that cannot be satisfied without exceeding
+   INT_MAX bytes: the array's element count and element length are both `int`, so
+   a request larger than INT_MAX bytes can never index a valid element yet would
+   still be handed to realloc(), succeeding on over-committing systems and
+   corrupting the caller's logic (e.g. SetToSubscript returning a non-NULL
+   pointer for an absurd subscript while also leaking gigabytes). */
 static int Array_SafeCapacitySize(int Count, int ElemSize, size_t *Out)
 {
     if( Count < 0 || ElemSize < 0 )
+        return -1;
+
+    if( (size_t)Count > (size_t)INT_MAX )
         return -1;
 
     if( ElemSize != 0 && (size_t)Count > SIZE_MAX / (size_t)ElemSize )
         return -1;
 
     *Out = (size_t)Count * (size_t)ElemSize;
+    if( *Out > (size_t)INT_MAX )
+        return -1;
+
     return 0;
 }
 
@@ -65,7 +78,7 @@ void *Array_GetBySubscript(__in const Array *a, __in int Subscript)
             Subscript *= (-1);
         }
 
-        return (void *)((a->Data) + (a->DataLength) * Subscript);
+        return (void *)((a->Data) + (size_t)(a->DataLength) * (size_t)Subscript);
     } else {
         return NULL;
     }
@@ -131,18 +144,18 @@ int Array_PushBack(__in Array *a, __in_opt const void *Data, __in_opt void *Boun
         }
 
         if( Data != NULL )
-            memcpy((a->Data) + (a->DataLength) * (a->Used), Data, a->DataLength);
+            memcpy((a->Data) + (size_t)(a->DataLength) * (size_t)(a->Used), Data, a->DataLength);
 
         return (a->Used)++;
 
     } else {
-        if( Boundary != NULL && ((a->Data) + (-1) * (a->DataLength) * (a->Used)) < (char *)Boundary )
+        if( Boundary != NULL && ((a->Data) - (size_t)(a->DataLength) * (size_t)(a->Used)) < (char *)Boundary )
         {
             return -1;
         } else {
             if( Data != NULL )
             {
-                memcpy((a->Data) + (-1) * (a->DataLength) * (a->Used), Data, a->DataLength);
+                memcpy((a->Data) - (size_t)(a->DataLength) * (size_t)(a->Used), Data, a->DataLength);
             }
             return (a->Used)++;
         }
@@ -167,21 +180,21 @@ void *Array_SetToSubscript(Array *a, int Subscript, const void *Data)
             a->Allocated = Subscript + 1;
         }
 
-        memcpy((a->Data) + (a->DataLength) * Subscript, Data, a->DataLength);
+        memcpy((a->Data) + (size_t)(a->DataLength) * (size_t)Subscript, Data, a->DataLength);
 
         if( a->Used < Subscript + 1 )
             a->Used = Subscript + 1;
 
-        return (a->Data) + (a->DataLength) * Subscript;
+        return (a->Data) + (size_t)(a->DataLength) * (size_t)Subscript;
     } else {
         if( a->Used < Subscript + 1 )
         {
             a->Used = Subscript + 1;
         }
 
-        memcpy((a->Data) + (-1) * (a->DataLength) * Subscript, Data, a->DataLength);
+        memcpy((a->Data) - (size_t)(a->DataLength) * (size_t)Subscript, Data, a->DataLength);
 
-        return (a->Data) + (-1) * (a->DataLength) * Subscript;
+        return (a->Data) - (size_t)(a->DataLength) * (size_t)Subscript;
     }
 }
 

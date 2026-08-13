@@ -693,6 +693,37 @@ TcpM_Works(TcpM *m)
 
                 ++NumberOfCumulated;
 
+                /* `m->Incoming` is the module's own UDP *listen* socket.  A
+                   datagram read here is a client DNS query delivered over UDP,
+                   so the stored context must be filled exactly like
+                   UdpFrontend_Work does: set SendBackSocket to this socket,
+                   BackAddress to the client's address family, and parse the
+                   QUESTION to populate Domain/HashValue/EntityLength.  Without
+                   this, the IHeader is left uninitialized: SendBackSocket is
+                   garbage, BackAddress.family stays AF_UNSPEC (so
+                   MsgContext_IsFromTCP() wrongly returns TRUE and the reply is
+                   sent with TCP-style send() on a UDP socket -> ENOTCONN), and
+                   Domain/HashValue are empty so filter/hosts/cache matching is
+                   broken.  The query would otherwise be forwarded but its
+                   answer could never be returned to the client. */
+                if( IHeader_Fill(Header,
+                                 FALSE,
+                                 ReceiveBuffer + sizeof(IHeader),
+                                 State - (int)sizeof(IHeader),
+                                 (const struct sockaddr *)&(m->IncomingAddr.Addr),
+                                 m->Incoming,
+                                 m->IncomingAddr.family,
+                                 NULL
+                                 )
+                    != 0 )
+                {
+                    WARNING("Malformed message received on TCP module's UDP "
+                            "incoming socket, discarded.\n");
+                    p->Del(p, s);
+                    p->Add(p, s, TcpCtx, sizeof(TcpContext));
+                    continue;
+                }
+
                 MsgCtxStored = m->Context.Add(&(m->Context), MsgCtx);
                 if( MsgCtxStored == NULL )
                 {

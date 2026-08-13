@@ -261,6 +261,14 @@ static int AddToLists(ConfigFileInfo *ConfigInfo)
             continue;
         }
 
+        /* Reject an out-of-range or zero port before it is stored in a
+           sockaddr that connect() would then try to use. */
+        if( Port <= 0 || Port > 65535 )
+        {
+            ERRORMSG("Invalid GoodIPListAddIP port (must be 1-65535): %s\n", Itr);
+            continue;
+        }
+
         ip.sin_port = htons(Port);
         ip.sin_family = AF_INET; /* IPv4 only */
 

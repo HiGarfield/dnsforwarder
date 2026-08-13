@@ -2,6 +2,14 @@
 #include "socketpool.h"
 #include "utils.h"
 
+/* The BST node payload is laid out as { SOCKET, user-data... }.  The node data
+   itself is 8-byte aligned, but on platforms where SOCKET is only 4 bytes wide
+   (e.g. Linux) the trailing user-data would otherwise start at a 4-byte offset
+   and become misaligned for any 8-byte value (pointers, uint64_t) stored there,
+   triggering undefined behaviour (and e.g. a UBSan misaligned-load fault).  Pad
+   the SOCKET header up to the pointer alignment so user-data is always aligned. */
+#define SOCKETPOOL_HEADER   ((int)ROUND_UP(sizeof(SOCKET), sizeof(void *)))
+
 static int SocketPool_Add(SocketPool *sp,
                           SOCKET Sock,
                           const void *Data,
@@ -9,7 +17,7 @@ static int SocketPool_Add(SocketPool *sp,
                           )
 {
     SOCKET *s = (SOCKET *)sp->SocketUnit;
-    int Capacity = sp->DataLength - (int)sizeof(SOCKET);
+    int Capacity = sp->DataLength - SOCKETPOOL_HEADER;
 
     if( DataLength < 0 || Capacity < 0 || DataLength > Capacity )
     {
@@ -20,11 +28,11 @@ static int SocketPool_Add(SocketPool *sp,
 
     if( Data != NULL )
     {
-        memcpy((char *)s + sizeof(SOCKET), Data, DataLength);
+        memcpy((char *)s + SOCKETPOOL_HEADER, Data, DataLength);
     }
     /* Clear the trailing bytes of the unit. s is a SOCKET*, so pointer
        arithmetic uses sizeof(SOCKET); cast to char* to keep byte offsets. */
-    memset((char *)s + sizeof(SOCKET) + DataLength, 0,
+    memset((char *)s + SOCKETPOOL_HEADER + DataLength, 0,
            (size_t)(Capacity - DataLength));
 
     if( sp->t.Add(&(sp->t), sp->SocketUnit) == NULL )
@@ -67,7 +75,7 @@ static int SocketPool_Fetch_Inner(Bst *t,
 
         if( Arg->DataOut != NULL )
         {
-            *(Arg->DataOut) = (void *)(s + 1);
+            *(Arg->DataOut) = (void *)((char *)s + SOCKETPOOL_HEADER);
         }
 
         return 1;
@@ -140,7 +148,7 @@ static int Compare(const SocketUnit *_1, const SocketUnit *_2)
 
 int SocketPool_Init(SocketPool *sp, int DataLength)
 {
-    DataLength += sizeof(SOCKET);
+    DataLength += SOCKETPOOL_HEADER;
 
     if( Bst_Init(&(sp->t),
                     DataLength,

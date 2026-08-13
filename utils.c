@@ -191,9 +191,19 @@ char *GetCurDateAndTime(char *Buffer, int BufferLength)
        (and to race inside the library's lazily-initialised timezone state).
        Use the reentrant variant with a buffer of our own. */
 #ifdef _WIN32
-    /* The Windows CRT keeps the result in thread-local storage. */
-    (void)TimeInfoStorage;
-    timeinfo = localtime(&rawtime);
+    /* localtime() returns a pointer to one process-wide `struct tm' shared by
+       every caller, so using it here would clobber that buffer (and race the
+       library's timezone state) just like on POSIX. localtime_s() is the
+       reentrant Windows counterpart of localtime_r() and writes into our own
+       storage. */
+    if( localtime_s(&TimeInfoStorage, &rawtime) != 0 )
+    {
+        timeinfo = NULL;
+    }
+    else
+    {
+        timeinfo = &TimeInfoStorage;
+    }
 #else
     timeinfo = localtime_r(&rawtime, &TimeInfoStorage);
 #endif

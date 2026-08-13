@@ -555,6 +555,9 @@ PUBFUNC int TcpM_Send(TcpM *m,
        query was silently dropped.  Forward the query the same way TcpM_Works
        does when it reads a client query from the listen socket: connect to an
        upstream in m->ServiceList and send the (length-prefixed) payload. */
+    MsgContext *MsgCtxStored;
+    int r;
+
     (void)BufferLength;
 
     /* TcpM_Send_Actual mutates shared module state (m->Puller, m->QueryPuller,
@@ -564,7 +567,38 @@ PUBFUNC int TcpM_Send(TcpM *m,
        call with the module lifecycle lock to avoid corrupting the puller's
        fd_set / internal arrays. */
     EFFECTIVE_LOCK_GET(m->Lock);
-    int r = TcpM_Send_Actual(m, (MsgContext *)Buffer, -1);
+
+    /* Register the query in m->Context *before* it goes out, exactly like the
+       listen-socket path in TcpM_Works and like UdpM_Send.  Two things depend
+       on it:
+
+       - The answer read back in TcpM_Works is matched against this table by
+         GenAnswerHeaderAndRemove(); without an entry that lookup fails (-60)
+         and every answer to a query routed here was discarded, so queries sent
+         to a TCP upstream never produced a reply.
+
+       - TcpM_Send_Actual stores the MsgContext in TcpContext->MsgCtx and reuses
+         it later (keep-alive re-send / retry on another socket).  `Buffer` is
+         the calling frontend's receive buffer, which is reused for the next
+         client query, so it must not be captured; hand over the stable copy
+         owned by m->Context instead. */
+    MsgCtxStored = m->Context.Add(&(m->Context), (MsgContext *)Buffer);
+    if( MsgCtxStored == NULL )
+    {
+        EFFECTIVE_LOCK_RELEASE(m->Lock);
+        return -1;
+    }
+
+    r = TcpM_Send_Actual(m, MsgCtxStored, -1);
+
+    if( r <= 0 )
+    {
+        /* Nothing was sent, so no answer can ever arrive: drop the entry rather
+           than leave it for the sweeper. */
+        IHeader_Reset((IHeader *)MsgCtxStored);
+        m->Context.Del(&(m->Context), MsgCtxStored);
+    }
+
     EFFECTIVE_LOCK_RELEASE(m->Lock);
 
     return r <= 0;

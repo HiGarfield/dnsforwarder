@@ -121,14 +121,22 @@ int ConfigAddAlias(ConfigFileInfo *Info,
                            );
 }
 
+/* Cap the alias chain length. A cyclic alias (A -> B -> A, or A -> A) used to
+   recurse forever and crash via stack overflow; this bounds the resolution. */
+#define MAX_ALIAS_DEPTH    64
+
 /* **Prepending and **StringDelimiters should be NULL before this is called */
-static ConfigOption *GetOptionOfAInfo(ConfigFileInfo *Info,
-                                      const char *KeyName,
-                                      const char **Prepending,
-                                      const char **StringDelimiters
-                                      )
+static ConfigOption *GetOptionOfAInfoImpl(ConfigFileInfo *Info,
+                                          const char *KeyName,
+                                          const char **Prepending,
+                                          const char **StringDelimiters,
+                                          int Depth
+                                          )
 {
     ConfigOption *Option;
+
+    if( Depth > MAX_ALIAS_DEPTH )
+        return NULL;
 
     if( StringChunk_Match_NoWildCard(&(Info->Options), KeyName, NULL, (void **)&Option, NULL, NULL) == TRUE )
     {
@@ -144,17 +152,27 @@ static ConfigOption *GetOptionOfAInfo(ConfigFileInfo *Info,
                 *StringDelimiters = Option->Delimiters;
             }
 
-            return GetOptionOfAInfo(Info,
-                                    Option->Holder.Aliasing.Target,
-                                    Prepending,
-                                    StringDelimiters
-                                    );
+            return GetOptionOfAInfoImpl(Info,
+                                        Option->Holder.Aliasing.Target,
+                                        Prepending,
+                                        StringDelimiters,
+                                        Depth + 1
+                                        );
         } else {
             return Option;
         }
     } else {
         return NULL;
     }
+}
+
+static ConfigOption *GetOptionOfAInfo(ConfigFileInfo *Info,
+                                      const char *KeyName,
+                                      const char **Prepending,
+                                      const char **StringDelimiters
+                                      )
+{
+    return GetOptionOfAInfoImpl(Info, KeyName, Prepending, StringDelimiters, 0);
 }
 
 int ConfigSetStringDelimiters(ConfigFileInfo *Info,

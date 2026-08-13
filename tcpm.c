@@ -22,6 +22,14 @@ extern BOOL Ipv6_Enabled;
 extern int TCPM_Keep_Alive;
 static const struct timeval TimeOut_Const = {TIMEOUT, 0};
 
+/* How long the worker loop in TcpM_Works() may block in select().  Throughout
+   that window the worker is blind: upstream sockets opened by TcpM_Send() on a
+   frontend thread are not in its fd_set yet, and its context sweep cannot run.
+   ModuleContext_Sweep() drops entries older than 2 seconds, so this interval
+   has to stay below that deadline. */
+#define TIMEOUT_WORKER_POLL 1
+static const struct timeval TimeOut_WorkerPoll = {TIMEOUT_WORKER_POLL, 0};
+
 typedef struct _TcpContext
 {
     int     ServerIndex;
@@ -677,7 +685,11 @@ TcpM_Works(TcpM *m)
     {
         int KeepServing;
         SOCKET  s;
-        struct timeval TimeOut = TimeOut_Const;
+        /* Not TimeOut_Const: blocking for TIMEOUT (5s) here exceeded the 2s
+           ModuleContext sweep deadline, so the worker woke up only after every
+           query registered by TcpM_Send() had already aged out and swept them
+           before it ever polled the socket carrying their answer. */
+        struct timeval TimeOut = TimeOut_WorkerPoll;
 
         /* IsServer is toggled to 0 by Modules_SafeCleanup on shutdown.  Read
          * it under the module spin lock so the read is synchronized with that

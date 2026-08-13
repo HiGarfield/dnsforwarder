@@ -476,6 +476,11 @@ EXIT_1:
     return 0;
 #endif /* BASE64_DECODER_COREUTILS */
 #endif /* _WIN32 */
+    /* No base64 decoder backend was compiled in (e.g. a non-Windows build
+       without BASE64_DECODER_OPENSSL / _UUDECODE / _COREUTILS).  Without this
+       fallback the function would fall off the end and return an indeterminate
+       value (undefined behaviour). */
+    return -1;
 }
 #endif /* MASKED */
 

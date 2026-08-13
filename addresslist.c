@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
-#include <ws2tcpip.h>
 #include "addresslist.h"
 #include "common.h"
 #include "utils.h"

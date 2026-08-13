@@ -78,6 +78,15 @@ UdpM_Sweep_Thread(UdpM *m)
 
 static int UdpM_Cleanup(UdpM *m)
 {
+    /* Everything torn down here -- m->Departure, m->Parallels and m->AddrList --
+     * is read by UdpM_Send() while it holds m->Lock, so the teardown has to take
+     * that lock too.  Doing it unlocked let a concurrent dispatch send on a
+     * descriptor that had just been closed (or, once the number was recycled, on
+     * an unrelated socket) and dereference already freed address lists.
+     * Publishing "thread exited" under the same lock keeps Modules_SafeCleanup's
+     * wait loop synchronized with this writer. */
+    EFFECTIVE_LOCK_GET(m->Lock);
+
     m->IsServer = 0;
 
     CLOSE_SOCKET(m->Departure);
@@ -86,10 +95,8 @@ static int UdpM_Cleanup(UdpM *m)
     SafeFree(m->Parallels.addrs);
     AddressList_Free(&(m->AddrList));
 
-    /* Publish "thread exited" under the lock so Modules_SafeCleanup's wait
-     * loop reads it synchronously instead of racing on a plain write. */
-    EFFECTIVE_LOCK_GET(m->Lock);
     m->WorkThread = NULL_THREAD;
+
     EFFECTIVE_LOCK_RELEASE(m->Lock);
 
     return 0;
@@ -192,8 +199,14 @@ UdpM_Works(UdpM *m)
             case SOCKET_ERROR:
                 WARNING("SOCKET_ERROR reached, 98.\n");
                 FD_CLR(m->Departure, &ReadSet);
+                /* m->Departure belongs to m->Lock: UdpM_Send() reads it and
+                 * calls sendto() on it under that lock (and this thread creates
+                 * it under the lock above), so retiring it must be locked as
+                 * well. */
+                EFFECTIVE_LOCK_GET(m->Lock);
                 CLOSE_SOCKET(m->Departure);
                 m->Departure = INVALID_SOCKET;
+                EFFECTIVE_LOCK_RELEASE(m->Lock);
                 continue;
                 break;
 
@@ -204,17 +217,22 @@ UdpM_Works(UdpM *m)
 
                     /* Read CountOfTimeout under the lock: the sweep thread
                        increments it concurrently, so a plain read is a data
-                       race that can yield a torn value. */
+                       race that can yield a torn value.  Retiring m->Departure
+                       needs the same lock, because UdpM_Send() reads it and
+                       sends on it while holding it. */
                     EFFECTIVE_LOCK_GET(m->Lock);
                     CountOfTimeout = m->CountOfTimeout;
-                    EFFECTIVE_LOCK_RELEASE(m->Lock);
 
                     if( CountOfTimeout > RECREATION_THRESHOLD )
                     {
                         FD_CLR(m->Departure, &ReadSet);
                         CLOSE_SOCKET(m->Departure);
                         m->Departure = INVALID_SOCKET;
+                    }
+                    EFFECTIVE_LOCK_RELEASE(m->Lock);
 
+                    if( CountOfTimeout > RECREATION_THRESHOLD )
+                    {
                         WARNING("UDP socket is about to be recreated.\n");
                     }
                 }

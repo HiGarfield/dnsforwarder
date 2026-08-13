@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
+#include <ws2tcpip.h>
 #include "addresslist.h"
 #include "common.h"
 #include "utils.h"
@@ -80,10 +81,16 @@ sa_family_t AddressList_ConvertFromString(Address_Type *Out, const char *Addr_Po
                     }
                 }
 
+                /* Validate the literal with inet_pton instead of trusting
+                   IPv6AddressToNum(), which silently turns garbage such as
+                   "[foo]:53" or "[1.2.3.4]:53" into a malformed address. */
+                if( inet_pton(AF_INET6, Addr, &(Out->Addr.Addr6.sin6_addr)) != 1 )
+                {
+                    return AF_UNSPEC;
+                }
+
                 Out->Addr.Addr6.sin6_family = Family;
                 Out->Addr.Addr6.sin6_port = htons(Port);
-
-                IPv6AddressToNum(Addr, &(Out->Addr.Addr6.sin6_addr));
 
                 return AF_INET6;
             }
@@ -113,7 +120,15 @@ sa_family_t AddressList_ConvertFromString(Address_Type *Out, const char *Addr_Po
                         Port = DefaultPort;
                     }
                 }
-                FILL_ADDR4(Out->Addr.Addr4, Family, Addr, Port);
+                /* inet_pton() rejects malformed literals (e.g. "foo") and is
+                   free of inet_addr()'s INADDR_NONE/255.255.255.255 ambiguity. */
+                if( inet_pton(AF_INET, Addr, &(Out->Addr.Addr4.sin_addr)) != 1 )
+                {
+                    return AF_UNSPEC;
+                }
+
+                Out->Addr.Addr4.sin_family = Family;
+                Out->Addr.Addr4.sin_port = htons(Port);
 
                 return AF_INET;
             }

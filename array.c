@@ -1,7 +1,26 @@
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include "array.h"
 #include "utils.h"
+
+/* Compute `Count * ElemSize` into *Out without losing the result to an integer
+   overflow. The allocation routines take a `size_t`, but the callers used to
+   compute `Count * ElemSize` in `int` arithmetic and then widen it to `size_t`.
+   When the product exceeded INT_MAX it wrapped to a small (or zero) value, so
+   SafeMalloc()/SafeRealloc() was handed a far-too-small buffer and the
+   subsequent memcpy()/memset() overflowed the heap. */
+static int Array_SafeCapacitySize(int Count, int ElemSize, size_t *Out)
+{
+    if( Count < 0 || ElemSize < 0 )
+        return -1;
+
+    if( ElemSize != 0 && (size_t)Count > SIZE_MAX / (size_t)ElemSize )
+        return -1;
+
+    *Out = (size_t)Count * (size_t)ElemSize;
+    return 0;
+}
 
 /* if it grows down, the InitialCount will be ignored. Otherwise, TheFirstAddress will be ignored. */
 int Array_Init(__in Array *a, __in int DataLength, __in int InitialCount, __in BOOL GrowsDown, __in void *TheFirstAddress /* The first means the biggest address*/)
@@ -16,11 +35,13 @@ int Array_Init(__in Array *a, __in int DataLength, __in int InitialCount, __in B
     {
         if( InitialCount > 0 )
         {
-            a->Data = SafeMalloc(DataLength * InitialCount);
-            if( a->Data == NULL )
+            size_t  Bytes;
+
+            if( Array_SafeCapacitySize(InitialCount, DataLength, &Bytes) != 0
+                || (a->Data = SafeMalloc(Bytes)) == NULL )
                 return 2;
 
-            memset(a->Data, 0, DataLength * InitialCount);
+            memset(a->Data, 0, Bytes);
         } else {
             a->Data = NULL;
         }
@@ -97,9 +118,11 @@ int Array_PushBack(__in Array *a, __in_opt const void *Data, __in_opt void *Boun
     {
         if( a->Used == a->Allocated )
         {
-            int NewCount = (a->Allocated) < 2 ? 2 : (a->Allocated) + (a->Allocated) / 2;
+            int     NewCount    = (a->Allocated) < 2 ? 2 : (a->Allocated) + (a->Allocated) / 2;
+            size_t  Bytes;
 
-            if( SafeRealloc((void **)&(a->Data), NewCount * (a->DataLength)) != 0 )
+            if( Array_SafeCapacitySize(NewCount, a->DataLength, &Bytes) != 0
+                || SafeRealloc((void **)&(a->Data), Bytes) != 0 )
             {
                 return -1;
             }
@@ -132,7 +155,10 @@ void *Array_SetToSubscript(Array *a, int Subscript, const void *Data)
     {
         if( Subscript >= a->Allocated )
         {
-            if( SafeRealloc((void **)&(a->Data), (Subscript + 1) * (a->DataLength)) != 0 )
+            size_t  Bytes;
+
+            if( Array_SafeCapacitySize(Subscript + 1, a->DataLength, &Bytes) != 0
+                || SafeRealloc((void **)&(a->Data), Bytes) != 0 )
                 return NULL;
 
             a->Allocated = Subscript + 1;

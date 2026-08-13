@@ -346,11 +346,18 @@ static int UdpM_Send(UdpM *m,
 {
     int ret = 0;
     const IHeader *h = (IHeader *)Buffer;
+    MsgContext *MsgCtxStored;
 
     MsgContext_AddFakeEdns((MsgContext *)Buffer, BufferLength);
 
     EFFECTIVE_LOCK_GET(m->Lock);
-    if( m->Context.Add(&(m->Context), (MsgContext *)Buffer) == NULL )
+    /* Keep the pointer Add() returns: it addresses the copy stored inside the
+     * BST node, and Bst_Delete() derives the node header from it as
+     * ((Bst_NodeHead *)Node) - 1.  Handing it `Buffer` instead would make it
+     * read a node header out of whatever precedes the caller's receive buffer
+     * and then write through those bogus links. */
+    MsgCtxStored = m->Context.Add(&(m->Context), (MsgContext *)Buffer);
+    if( MsgCtxStored == NULL )
     {
         EFFECTIVE_LOCK_RELEASE(m->Lock);
         /* The dispatch was dropped before it reached an upstream; release the
@@ -398,7 +405,7 @@ static int UdpM_Send(UdpM *m,
                 ERRORMSG("Fatal error 205.\n");
                 /* Roll back the Context entry we just registered, otherwise the
                  * stale context leaks and is counted as an unanswered query. */
-                m->Context.Del(&(m->Context), (MsgContext *)Buffer);
+                m->Context.Del(&(m->Context), MsgCtxStored);
                 EFFECTIVE_LOCK_RELEASE(m->Lock);
                 /* Dispatch dropped: release the TCP socket hold. */
                 MsgContext_ReleaseSocket((MsgContext *)Buffer);
@@ -422,7 +429,7 @@ static int UdpM_Send(UdpM *m,
         /* m->Departure is not ready yet: the Context we registered above would
            otherwise leak and be counted as an unanswered query forever. Roll it
            back and report the failure. */
-        m->Context.Del(&(m->Context), (MsgContext *)Buffer);
+        m->Context.Del(&(m->Context), MsgCtxStored);
         /* Dispatch dropped: release the TCP socket hold. */
         MsgContext_ReleaseSocket((MsgContext *)Buffer);
         ret = 0;

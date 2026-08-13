@@ -141,7 +141,7 @@ int main(int argc, char **argv)
     }
 
     char work[9000];
-    long iterations = 200000;
+    long iterations = 1500000;
     for (long it = 0; it < iterations; ++it)
     {
         int n = seedlen;

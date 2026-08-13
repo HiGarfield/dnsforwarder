@@ -88,6 +88,10 @@ int main(void)
            offset (heap underflow). Must be rejected. */
         CHECK(Array_SetToSubscript(&o, 0x3FFFFFFF, &dummy) == NULL);
 
+        /* Negative subscripts must be rejected instead of writing before the
+           buffer. */
+        CHECK(Array_SetToSubscript(&o, -1, &dummy) == NULL);
+
         Array_Free(&o);
     }
 

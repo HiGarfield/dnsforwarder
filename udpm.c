@@ -188,6 +188,21 @@ UdpM_Works(UdpM *m)
 
             EFFECTIVE_LOCK_RELEASE(m->Lock);
 
+            /* FD_SET() performs no range check of its own; a descriptor >=
+               FD_SETSIZE indexes past the fd_set bitmap and corrupts adjacent
+               memory, and select() then uses a bogus nfds. The SocketPuller
+               frontend already rejects such descriptors, so do the same here
+               for the worker's own upstream socket. */
+            if( m->Departure >= FD_SETSIZE )
+            {
+                ERRORMSG("Upstream socket %d exceeds FD_SETSIZE, cannot serve.\n", (int)m->Departure);
+                EFFECTIVE_LOCK_GET(m->Lock);
+                CLOSE_SOCKET(m->Departure);
+                m->Departure = INVALID_SOCKET;
+                EFFECTIVE_LOCK_RELEASE(m->Lock);
+                break;
+            }
+
             FD_ZERO(&ReadSet);
             FD_SET(m->Departure, &ReadSet);
         }

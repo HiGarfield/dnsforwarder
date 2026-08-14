@@ -404,6 +404,17 @@ int ConfigRead(ConfigFileInfo *Info)
         if( ReadStatus == READ_FAILED_OR_END )
             return NumOfRead;
 
+        if( ReadStatus == READ_TRUNCATED )
+        {
+            /* The line is longer than the read buffer, so Buffer holds only a
+               fragment. Do not parse the fragment as a config entry; skip the
+               rest of this (too long) line and continue with the next one. */
+            ERRORMSG("Config line too long (>= %u bytes), skipped.\n",
+                     (unsigned)(sizeof(Buffer) - 1));
+            ReadLine_GoToNextLine(Info->fp);
+            continue;
+        }
+
         ValuePos = SplitNameAndValue(Buffer, " \t=");
         if( ValuePos == NULL )
             continue;

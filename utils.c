@@ -1208,17 +1208,32 @@ int CopyAFile(const char *Src, const char *Dst, BOOL Append)
         int ch;
 
         ch = fgetc(Src_Fp);
-        if( ch != EOF && !feof(Src_Fp) )
+        if( ch == EOF )
         {
-            fputc(ch, Dst_Fp);
-        } else {
             break;
+        }
+
+        /* `fputc` returns EOF on a failed/short write (e.g. target disk full).
+           Ignoring it would let the loop run to the end and report success with
+           a silently truncated copy, so stop and report the failure. */
+        if( fputc(ch, Dst_Fp) == EOF )
+        {
+            fclose(Src_Fp);
+            fclose(Dst_Fp);
+            return -3;
         }
 
     } while( TRUE );
 
     fclose(Src_Fp);
-    fclose(Dst_Fp);
+
+    /* fclose() flushes the buffered data; a full/erroring destination can fail
+       here even though every fputc() above succeeded, so its return must be
+       checked before claiming the copy succeeded. */
+    if( fclose(Dst_Fp) != 0 )
+    {
+        return -4;
+    }
 
     return 0;
 }

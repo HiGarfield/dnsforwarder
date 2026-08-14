@@ -751,6 +751,15 @@ static int DnsGenerator_CopyA(DnsGenerator *g, DnsSimpleParserIterator *i)
         return -6;
     }
 
+    /* The source is network-supplied RDATA whose length is attacker controlled
+       via the record's RDLENGTH.  A short A record (RDLENGTH < 4) would make
+       the memcpy below read past the end of the received packet.  Only copy as
+       many bytes as the record actually carries. */
+    if( i->DataLength < 4 )
+    {
+        return -7;
+    }
+
     memcpy(g->Itr, i->RowData(i), 4);
 
     g->Itr += 4;
@@ -807,6 +816,15 @@ static int DnsGenerator_CopyAAAA(DnsGenerator *g, DnsSimpleParserIterator *i)
     if( LEFT_LENGTH(g) < 16 )
     {
         return -6;
+    }
+
+    /* The source is network-supplied RDATA whose length is attacker controlled
+       via the record's RDLENGTH.  A short AAAA record (RDLENGTH < 16) would make
+       the memcpy below read past the end of the received packet.  Only copy as
+       many bytes as the record actually carries. */
+    if( i->DataLength < 16 )
+    {
+        return -7;
     }
 
     memcpy(g->Itr, i->RowData(i), 16);

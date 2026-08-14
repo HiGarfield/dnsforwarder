@@ -20,7 +20,10 @@ PRIFUNC HostsRecordType HostsContainer_DetermineType(const char *IPOrCName)
     }
 
     /* Good IP List */
-    if( *IPOrCName == '<' && IPOrCName[strlen(IPOrCName) - 1] == '>' )
+    /* Guard against an empty string: strlen("") == 0 and indexing at
+       strlen - 1 would read one byte before the buffer. */
+    if( *IPOrCName != '\0' &&
+        *IPOrCName == '<' && IPOrCName[strlen(IPOrCName) - 1] == '>' )
     {
         return HOSTS_TYPE_GOOD_IP_LIST;
     }

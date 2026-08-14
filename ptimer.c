@@ -33,7 +33,7 @@ unsigned long PTimer_End(const PTimer *t)
         return ULONG_MAX;
     }
 
-    if( e.tv_nsec >  t->c.tv_nsec )
+    if( e.tv_nsec >= t->c.tv_nsec )
     {
         ms = (e.tv_nsec - t->c.tv_nsec) / 1000000;
     } else {

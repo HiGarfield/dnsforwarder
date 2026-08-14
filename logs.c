@@ -181,12 +181,23 @@ void Log_Print(const char *Type, const char *format, ...)
            vfprintf would dereference a NULL FILE* and crash. */
         if( LogFile != NULL )
         {
-            CurrentLength += fprintf(LogFile,
-                                     Type == NULL ? "%s " : "%s [%s] ",
-                                     DateAndTime,
-                                     Type == NULL ? "" : Type
-                                     );
-            CurrentLength += vfprintf(LogFile, format, ap);
+            int Written;
+
+            Written = fprintf(LogFile,
+                              Type == NULL ? "%s " : "%s [%s] ",
+                              DateAndTime,
+                              Type == NULL ? "" : Type
+                              );
+            if( Written >= 0 )
+            {
+                CurrentLength += Written;
+            }
+
+            Written = vfprintf(LogFile, format, ap);
+            if( Written >= 0 )
+            {
+                CurrentLength += Written;
+            }
 
             fflush(LogFile);
         }

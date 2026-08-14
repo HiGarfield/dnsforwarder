@@ -702,7 +702,11 @@ TcpM_Works(TcpM *m)
             break;
         }
 
+        /* Serialize m->Puller access with TcpM_Send (frontend thread), which
+           also mutates the puller's fd_set / BST under m->Lock. */
+        EFFECTIVE_LOCK_GET(m->Lock);
         s = p->Select(p, &TimeOut, (void **)&TcpCtx, TRUE, FALSE, &Err);
+        EFFECTIVE_LOCK_RELEASE(m->Lock);
 
         if( s == INVALID_SOCKET )
         {
@@ -773,8 +777,10 @@ TcpM_Works(TcpM *m)
                 {
                     WARNING("Malformed message received on TCP module's UDP "
                             "incoming socket, discarded.\n");
+                    EFFECTIVE_LOCK_GET(m->Lock);
                     p->Del(p, s);
                     p->Add(p, s, TcpCtx, sizeof(TcpContext));
+                    EFFECTIVE_LOCK_RELEASE(m->Lock);
                     continue;
                 }
 
@@ -785,8 +791,10 @@ TcpM_Works(TcpM *m)
                 if( MsgCtxStored == NULL )
                 {
                     EFFECTIVE_LOCK_RELEASE(m->Lock);
+                    EFFECTIVE_LOCK_GET(m->Lock);
                     p->Del(p, s);
                     p->Add(p, s, TcpCtx, sizeof(TcpContext));
+                    EFFECTIVE_LOCK_RELEASE(m->Lock);
                     continue;
                 }
 
@@ -796,8 +804,10 @@ TcpM_Works(TcpM *m)
                 EFFECTIVE_LOCK_RELEASE(m->Lock);
             }
 
+            EFFECTIVE_LOCK_GET(m->Lock);
             p->Del(p, s);
             p->Add(p, s, TcpCtx, sizeof(TcpContext));
+            EFFECTIVE_LOCK_RELEASE(m->Lock);
 
         } else {
             int State;
@@ -811,11 +821,14 @@ TcpM_Works(TcpM *m)
                puller `p`. `p->Del` below returns that node to `p`'s free
                list, where a later `Add` (e.g. inside TcpM_Send_Actual or
                the re-add at the end of this branch) may reuse and overwrite
-               it. Copy the context by value before deleting so every later
-               access reads a stable snapshot instead of freed/reused memory. */
+               it. Copy the context by value and remove the node while holding
+               m->Lock, so the copy is atomic with respect to TcpM_Send's
+               concurrent Add/Select on the same puller. */
+            EFFECTIVE_LOCK_GET(m->Lock);
             Ctx = *TcpCtx;
 
             p->Del(p, s);
+            EFFECTIVE_LOCK_RELEASE(m->Lock);
 
             /* Read the 2-byte TCP length prefix. On a non-blocking socket the
                two bytes can arrive in separate segments, so keep reading until
@@ -897,7 +910,11 @@ TcpM_Works(TcpM *m)
             p2 = m->Agents[Ctx.ServerIndex];
             Ctx.LastActivity = time(NULL);
             Ctx.MsgCtx = NULL;
+            /* m->Agents[] pullers are also mutated by TcpM_Send's connect path
+               (TcpM_Connect_Recycle) under m->Lock; serialize this re-add. */
+            EFFECTIVE_LOCK_GET(m->Lock);
             p2->Add(p2, s, &Ctx, sizeof(TcpContext));
+            EFFECTIVE_LOCK_RELEASE(m->Lock);
 
             /* `ReceiveBuffer` lives on the stack and is reused by every
                iteration. When `IHeader_Fill` fails it returns before

@@ -49,6 +49,22 @@ static void ModuleContext_Sweep(ModuleContext *c, SweepCallback cb, void *Arg)
             cb(*Context, i + 1, Arg);
         }
 
+        /* This query is being abandoned without a response, so the TCP socket
+         * hold taken when it was dispatched has to go back here.  Every other
+         * drop path releases it (MsgContext_SendBack, the Filter_Out and
+         * no-module paths in MMgr_Send, the module rollbacks); the sweep did
+         * not, so a query from a TCP client that timed out upstream left
+         * TcpSocketInFlight[] pinned forever.  TcpFrontend_ClientGone() then
+         * refused to close the descriptor, waiting for a release that never
+         * came, and the daemon leaked one descriptor per timed-out query until
+         * it could no longer accept connections.
+         *
+         * Must happen before IHeader_Reset(): that sets BackAddress.family to
+         * AF_UNSPEC, which is exactly how MsgContext_IsFromTCP() recognizes a
+         * TCP client, so afterwards UDP entries would be indistinguishable from
+         * TCP ones. */
+        MsgContext_ReleaseSocket((MsgContext *)*Context);
+
         /* Reset the header before deleting so any external pointer still
          * holding this context (e.g. TcpCtx->MsgCtx, used by the TCP
          * keep-alive retry loop) sees Domain[0] == 0 and will not

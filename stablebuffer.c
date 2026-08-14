@@ -1,4 +1,5 @@
 #include <string.h>
+#include <limits.h>
 #include "stablebuffer.h"
 #include "utils.h"
 
@@ -32,9 +33,20 @@ static StableBuffer_MetaInfo *Realloc(Array *MetaInfo, int DataLength)
 
     int BLOCK_ORDER = Array_GetUsed(MetaInfo) + 1;
 
-    m.Amount = ROUND_UP(DataLength * BLOCK_ORDER, sizeof(void *));
+    /* DataLength and BLOCK_ORDER are both `int`, so their product can
+       overflow (signed integer overflow is undefined behaviour) once a
+       long-lived buffer such as HostsContainer::Table accumulates enough
+       blocks.  Compute in 64-bit and reject a request that would not fit in
+       the int32_t `Amount` field (or that wrapped), instead of handing a
+       negative/wrong size to SafeMalloc. */
+    long long Product = (long long)DataLength * BLOCK_ORDER;
+    if( Product <= 0 || Product > (long long)INT_MAX )
+    {
+        return NULL;
+    }
+    m.Amount = (int32_t)ROUND_UP((int)Product, sizeof(void *));
     m.Used = 0;
-    m.Start = SafeMalloc(m.Amount);
+    m.Start = SafeMalloc((size_t)m.Amount);
     if( m.Start == NULL )
     {
         return NULL;

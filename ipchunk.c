@@ -312,6 +312,15 @@ int IpChunk_Add(IpChunk *ic,
     if( Data != NULL )
     {
         New.Data = ic->Datas.Add(&(ic->Datas), Data, DataLength, TRUE);
+        if( New.Data == NULL )
+        {
+            /* The additional (SUBSTITUTE) data could not be stored. Do not
+               register the rule with a NULL data pointer: IpChunk_Find would
+               hand NULL back to ipmisc.c, which then does
+               memcpy(RowDataPos, NULL, DataLength) on the SUBSTITUTE branch
+               and crash. Reject the addition instead. */
+            return -1;
+        }
     }
 
     if( IpSet_IsSingleIp(&(New.IpSet)) )

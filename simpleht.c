@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdint.h>
 #include "simpleht.h"
 
 typedef struct _Sht_Slot{

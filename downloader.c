@@ -87,6 +87,11 @@ int GetFromInternet_MultiFiles(const char   **URLs,
     {
         remove(File);
         rename(TempFile, File);
+    } else {
+        /* A partial/merged result must never replace the good target file, so
+           the commit above is skipped. Discard the leftover temp file instead
+           of leaving it on disk until the next (successful) run. */
+        remove(TempFile);
     }
 
     SafeFree(TempFile);

@@ -449,7 +449,15 @@ static Cht_Node *DNSCache_FindFromCache(const char *Content, size_t Length, Cht_
 
         if( IgnoreTTL == TRUE || (CurrentTime - Node->TimeAdded < Node->TTL) )
         {
-            if( memcmp(Content, MapStart + Node->Offset + 1, Length) == 0 )
+            /* On reload the whole hash table (including every node's Offset,
+               UsedLength and Length) is read verbatim from the on-disk cache
+               file. A truncated or corrupted file could carry an Offset that
+               points past the end of the mapping; reject such a node as a
+               cache miss instead of reading out of bounds. */
+            if( Node->Offset >= 0 &&
+                (uint32_t)Node->Offset + 1 + (uint32_t)Length <= (uint32_t)CacheSize &&
+                memcmp(Content, MapStart + Node->Offset + 1, Length) == 0
+              )
             {
                 return Node;
             }
@@ -795,6 +803,18 @@ static int DNSCache_GetRawRecordsFromCache(__in    const char *Name,
                 } else {
                     NewTTL = Node->TTL - (uint32_t)(CurrentTime - Node->TimeAdded);
                 }
+            }
+
+            /* A corrupted node from a reloaded cache file could carry a
+               UsedLength that runs past the mapping; reject it before we
+               compute the data pointer so the generator never reads or
+               writes out of bounds. */
+            if( Node->Offset < 0 ||
+                (uint32_t)Node->Offset + Node->UsedLength > (uint32_t)CacheSize ||
+                (uint32_t)Node->Offset + 1 + (uint32_t)KeyLength + 1 > (uint32_t)CacheSize
+              )
+            {
+                break;
             }
 
             /* Skip key to get data */

@@ -22,5 +22,15 @@ int GetFromInternet_SingleFile(const char   *URL,
 
 int GetFromInternet_Base(const char *URL, const char *File);
 
+#ifdef DOWNLOAD_LIBCURL
+/* Exposed for unit testing the short-write behaviour of the libcurl write
+   callback (it must report the exact number of bytes fwrite() stored, never
+   the requested amount, so a short write aborts the transfer). */
+size_t WriteFileCallback(void *Contents,
+                         size_t Size,
+                         size_t nmemb,
+                         void *FileDes);
+#endif /* DOWNLOAD_LIBCURL */
+
 #endif /* DOWNLOADER_H_INCLUDED */
 

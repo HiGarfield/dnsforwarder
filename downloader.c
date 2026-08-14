@@ -74,8 +74,14 @@ int GetFromInternet_MultiFiles(const char   **URLs,
         fp = fopen(TempFile, "a+");
         if( fp != NULL )
         {
-            fputc('\n', fp);
-            fclose(fp);
+            /* `fputc` returns EOF on failure; ignoring it would silently leave
+               a record separator missing and join two unrelated entries. Check
+               both the write and fclose() (the latter can fail when the buffered
+               data is flushed to a now-full disk). */
+            if( fputc('\n', fp) == EOF || fclose(fp) != 0 )
+            {
+                break;
+            }
         } else {
             break;
         }
@@ -205,15 +211,26 @@ int GetFromInternet_SingleFile(const char   *URL,
 }
 
 #ifdef DOWNLOAD_LIBCURL
-static size_t WriteFileCallback(void *Contents,
-                                size_t Size,
-                                size_t nmemb,
-                                void *FileDes
-                                )
+size_t WriteFileCallback(void *Contents,
+                         size_t Size,
+                         size_t nmemb,
+                         void *FileDes
+                         )
 {
     FILE *fp = (FILE *)FileDes;
-    fwrite(Contents, Size, nmemb, fp);
-    return Size * nmemb;
+    /* `fwrite` returns the number of *complete* items actually written, which
+       can be fewer than `nmemb` (disk full, I/O error, ...). Returning
+       `Size * nmemb` unconditionally would tell libcurl the whole payload was
+       stored even when only part of it was, so the download finishes "success"
+       with a silently truncated file -- and no retry. Report the true count;
+       a short write makes it differ from the requested amount, which libcurl
+       treats as an abort and surfaces as a transfer error. */
+    size_t Written = fwrite(Contents, Size, nmemb, fp);
+    /* Returning fewer bytes than requested makes libcurl abort the transfer
+       with CURLE_WRITE_ERROR, so GetFromInternet_Base() reports failure and
+       the partial temp file is discarded (not committed over the good target).
+       A short write must never be reported as a full, successful store. */
+    return Written * Size;
 }
 #endif /* DOWNLOAD_LIBCURL */
 
@@ -296,7 +313,16 @@ int GetFromInternet_Base(const char *URL, const char *File)
         if( ReadedLength == 0 )
             break;
 
-        fwrite(Buffer, 1, ReadedLength, fp);
+        /* `fwrite` returns the number of items written, which may be fewer
+           than requested on a full/erroring disk. Ignoring the result would
+           silently truncate the downloaded file while still reporting success
+           at the end of the loop. Check it and bail out so the truncated temp
+           file is discarded rather than committed over the good target. */
+        if( fwrite(Buffer, 1, ReadedLength, fp) != ReadedLength )
+        {
+            ret = -1;
+            goto Exit_3;
+        }
     }
 
 Exit_3:

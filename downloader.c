@@ -85,8 +85,18 @@ int GetFromInternet_MultiFiles(const char   **URLs,
 
     if( AllSucceeded )
     {
-        remove(File);
-        rename(TempFile, File);
+        /* Commit the merged result atomically. Previously the code did
+           remove(File) *before* rename(TempFile, File); if rename then
+           failed (e.g. cross-device move, read-only target dir) the good
+           target file was already deleted and the temp file left behind --
+           a silent data-loss. rename() already overwrites the destination
+           atomically on success, so there is no need to pre-remove it; on
+           failure the original File is left intact and we just drop the
+           leftover temp file instead of leaking it. */
+        if( rename(TempFile, File) != 0 )
+        {
+            remove(TempFile);
+        }
     } else {
         /* A partial/merged result must never replace the good target file, so
            the commit above is skipped. Discard the leftover temp file instead

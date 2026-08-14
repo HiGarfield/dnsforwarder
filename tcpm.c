@@ -711,7 +711,11 @@ TcpM_Works(TcpM *m)
                 ERRORMSG("TcpM fatal error %d.\n", Err);
                 break;
             }
+            /* Sweep modifies the per-module context BST, which is also touched
+               by TcpM_Send() (frontend thread) under m->Lock. Serialize it. */
+            EFFECTIVE_LOCK_GET(m->Lock);
             m->Context.Sweep(&(m->Context), (SweepCallback)SweepWorks, m);
+            EFFECTIVE_LOCK_RELEASE(m->Lock);
             NumberOfCumulated = 0;
             continue;
         }
@@ -721,7 +725,11 @@ TcpM_Works(TcpM *m)
 
             if( NumberOfCumulated > 1024 )
             {
+                /* Sweep modifies the per-module context BST, which is also
+                   touched by TcpM_Send() (frontend thread) under m->Lock. */
+                EFFECTIVE_LOCK_GET(m->Lock);
                 m->Context.Sweep(&(m->Context), (SweepCallback)SweepWorks, m);
+                EFFECTIVE_LOCK_RELEASE(m->Lock);
                 NumberOfCumulated = 0;
             }
 
@@ -770,9 +778,13 @@ TcpM_Works(TcpM *m)
                     continue;
                 }
 
+                /* Serialize the per-module context BST with TcpM_Send
+                   (frontend thread), which also calls Context.Add under m->Lock. */
+                EFFECTIVE_LOCK_GET(m->Lock);
                 MsgCtxStored = m->Context.Add(&(m->Context), MsgCtx);
                 if( MsgCtxStored == NULL )
                 {
+                    EFFECTIVE_LOCK_RELEASE(m->Lock);
                     p->Del(p, s);
                     p->Add(p, s, TcpCtx, sizeof(TcpContext));
                     continue;
@@ -780,7 +792,6 @@ TcpM_Works(TcpM *m)
 
                 /* Serialize with TcpM_Send (MMgr_Send entry): TcpM_Send_Actual
                    mutates the shared pullers / service list. */
-                EFFECTIVE_LOCK_GET(m->Lock);
                 TcpM_Send_Actual(m, MsgCtxStored, -1);
                 EFFECTIVE_LOCK_RELEASE(m->Lock);
             }
@@ -951,7 +962,11 @@ TcpM_Works(TcpM *m)
                 continue;
             }
 
+            /* GenAnswerHeaderAndRemove mutates the per-module context BST, which
+               is also touched by TcpM_Send() (frontend thread) under m->Lock. */
+            EFFECTIVE_LOCK_GET(m->Lock);
             State = m->Context.GenAnswerHeaderAndRemove(&(m->Context), MsgCtx, MsgCtx);
+            EFFECTIVE_LOCK_RELEASE(m->Lock);
 
             DNSCache_AddItemsToCache(MsgCtx, State == 0);
 

@@ -346,14 +346,20 @@ static void ParseString(ConfigOption *Option,
             break;
     }
 
-    while( ReadStatus != READ_DONE ){
+    /* NOTE: multi-line continuation was previously implemented as a
+       `while( ReadStatus != READ_DONE )' loop that kept calling ReadLine and
+       appending every following physical line to the current option's value.
+       That was wrong: ConfigRead() above already calls ReadLine_GoToNextLine()
+       to skip the remainder of any over-long line, so by the time we get here
+       the file position points at the *next* independent config entry. The
+       old loop therefore swallowed every subsequent line (and silently
+       dropped the options those lines defined) whenever a TYPE_STRING/PATH
+       option's value line exceeded the read buffer.
 
-        ReadStatus = ReadLine(fp, Buffer, BufferLength);
-        if( ReadStatus == READ_FAILED_OR_END )
-            break;
-
-        Option->Holder.str.AppendLast(&(Option->Holder.str), Buffer, Delimiters);
-    }
+       A value spanning multiple physical lines is not a supported format in
+       this project (multi-valued options use repeated keys, gathered by
+       ConfigGetStringList). Drop the continuation loop entirely; the single
+       value parsed above is the whole value. */
 
     if( Trim )
     {

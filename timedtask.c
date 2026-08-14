@@ -284,10 +284,12 @@ TimeTask_Work(void *Unused)
         {
         case SOCKET_ERROR:
             /** TODO: Show fatal error */
-            while( TRUE )
-            {
-                SLEEP(32767);
-            }
+            /* A transient select() error (e.g. EINTR from a signal delivery,
+               or a momentarily bad descriptor) must not wedge the worker: the
+               old code spun forever here and, because it never re-checked
+               TimedTask_ToExit, made TimedTask_Cleanup()'s JOIN_THREAD hang
+               the whole process on shutdown. Fall through to the loop's exit
+               check and retry instead. */
             break;
 
         case 0:

@@ -76,8 +76,25 @@ static int SimpleHT_Expand(SimpleHT *ht)
     }
 
     /* Reset every slot, both the pre-existing ones and the ones just
-       appended, before the nodes are redistributed below. */
-    memset(ht->Slots.Data, -1, Array_GetUsed(&(ht->Slots)) * ht->Slots.DataLength);
+       appended, before the nodes are redistributed below.
+
+       The byte count is the product of two `int`s; compute it in `size_t`
+       and reject an overflowing request instead of letting the multiplication
+       wrap to a small/negative value and silently under-clearing the slot
+       array (which would leave stale node indices and corrupt the chains). */
+    {
+        size_t  Used    = (size_t)Array_GetUsed(&(ht->Slots));
+        size_t  ElemLen = (size_t)ht->Slots.DataLength;
+        size_t  Bytes;
+
+        if( ElemLen != 0 && Used > SIZE_MAX / ElemLen )
+        {
+            ht->Slots.Used = NumberOfSlots_Old;
+            return -1;
+        }
+        Bytes = Used * ElemLen;
+        memset(ht->Slots.Data, -1, Bytes);
+    }
 
     for( loop = 0; loop < NumberOfNodes; ++loop )
     {

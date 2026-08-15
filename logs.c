@@ -153,6 +153,7 @@ static void CheckLength(void)
 void Log_Print(const char *Type, const char *format, ...)
 {
     va_list ap;
+    va_list ap_copy;
     char DateAndTime[32];
 
     if( !Log_Inited() )
@@ -168,8 +169,7 @@ void Log_Print(const char *Type, const char *format, ...)
        console). Re-using a va_list after it has been consumed by vfprintf is
        undefined behaviour on most ABIs (x64), so make a copy before the first
        use and consume the copy separately. */
-    va_list ap_copy;
-    va_copy(ap_copy, ap);
+    ap_copy = ap;
 
     EFFECTIVE_LOCK_GET(PrintLock);
     if( LogFile != NULL )

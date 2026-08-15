@@ -57,7 +57,9 @@ static void *StringList_Add(StringList *s,
 
     sb = &(s->Buffer);
 
-    void *Here = sb->Add(sb, str, strlen(str) + 1, FALSE);
+    {
+    void *Here;
+    Here = sb->Add(sb, str, strlen(str) + 1, FALSE);
     if( Here == NULL )
     {
         return NULL;
@@ -66,6 +68,7 @@ static void *StringList_Add(StringList *s,
     Divide(Here, Delimiters);
 
     return Here;
+    }
 }
 
 /* Unsafe operation, it may change strings' positions */

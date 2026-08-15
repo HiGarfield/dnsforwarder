@@ -15,7 +15,12 @@ int CacheTtlCrtl_Init(CacheTtlCtrl *c)
 
 int CacheTtlCrtl_Add(CacheTtlCtrl *c, const char *Domain, int State, uint32_t Coefficient, uint32_t Increment, int Infection)
 {
-    CtrlContent cc = {State, Coefficient, Increment, Infection};
+    CtrlContent cc;
+
+    cc.State = State;
+    cc.Coefficient = Coefficient;
+    cc.Increment = Increment;
+    cc.Infection = Infection;
 
     if( State == TTL_STATE_FIXED )
     {

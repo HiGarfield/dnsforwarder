@@ -98,9 +98,11 @@ static int DNSSECAlgorithm_Compare(const DNSSECAlgorithm *Key, const DNSSECAlgor
 
 const char *DNSSECGetAlgorithmName(int Num)
 {
-    DNSSECAlgorithm Key = {Num, NULL};
-
+    DNSSECAlgorithm Key;
     DNSSECAlgorithm *Result = NULL;
+
+    Key.Num = Num;
+    Key.Name = NULL;
 
     Result = bsearch(&Key, DNSSECAlgorithmList, sizeof(DNSSECAlgorithmList) / sizeof(DNSSECAlgorithm), sizeof(DNSSECAlgorithm), (int (*)(const void *, const void *))DNSSECAlgorithm_Compare);
 

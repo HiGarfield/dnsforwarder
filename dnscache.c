@@ -66,19 +66,21 @@ static void DNSCacheTTLCountdown_Task(void *Unused, void *Unused2)
      * holding the lock for the scan is acceptable. */
     RWLock_WrLock(CacheLock);
 
-    const Array *ChunkList = &(CacheInfo->NodeChunk);
-    int         loop = ChunkList->Used - 1;
-    Cht_Node    *Node;
-
-    if( loop < 0 )
     {
-        RWLock_UnWLock(CacheLock);
-        return;
-    }
+        const Array *ChunkList = &(CacheInfo->NodeChunk);
+        int         loop = ChunkList->Used - 1;
+        Cht_Node    *Node;
+        time_t      CurrentTime;
 
-    Node = (Cht_Node *)Array_GetBySubscript(ChunkList, loop);
+        if( loop < 0 )
+        {
+            RWLock_UnWLock(CacheLock);
+            return;
+        }
 
-    time_t      CurrentTime = time(NULL);
+        Node = (Cht_Node *)Array_GetBySubscript(ChunkList, loop);
+
+        CurrentTime = time(NULL);
 
 
     while( Node != NULL )
@@ -120,6 +122,7 @@ static void DNSCacheTTLCountdown_Task(void *Unused, void *Unused2)
     }
 
     RWLock_UnWLock(CacheLock);
+    }
 }
 
 static BOOL IsReloadable(void)
@@ -579,15 +582,12 @@ static int DNSCache_AddAItemToCache(DnsSimpleParserIterator *i,
     if(DNSCache_FindFromCache(Item, BufferItr - Item, NULL, CurrentTime) == NULL)
     {
         /* If not, add it */
-        DEBUG("Add cache: %s\n", Item);
-
-        /* Subscript of a chunk in the main cache zone */
+        {
         int32_t Subscript;
-
         uint32_t RecordTTL;
-
-        /* Node with subscript `Subscript' */
         Cht_Node    *Node;
+
+        DEBUG("Add cache: %s\n", Item);
 
         /* Detemine which TTL scheme will be used */
         if( InfectedTtlContent != NULL )
@@ -628,16 +628,27 @@ static int DNSCache_AddAItemToCache(DnsSimpleParserIterator *i,
                     break;
 
                 default:
-                    /* Compute in 64-bit to avoid uint32_t overflow of the
-                       Coefficient * TTL product (e.g. a large TTL multiplier
-                       combined with a long upstream TTL would silently wrap to
-                       a tiny value, corrupting the cached record's lifetime).
-                       Clamp the result back into the uint32_t range. */
+                    /* Avoid uint32_t overflow of the Coefficient * TTL product
+                       without a 64-bit type (ISO C90 has no `long long`): if
+                       the multiplication would exceed 0xFFFFFFFF, saturate to
+                       the maximum directly instead of letting it wrap to a tiny
+                       value (which would corrupt the cached record's lifetime).
+                       Then add the increment with the same saturation. */
                     {
-                        unsigned long long ttl = (unsigned long long)TtlContent->Coefficient *
-                                                 (unsigned long long)i->GetTTL(i) +
-                                                 (unsigned long long)TtlContent->Increment;
-                        RecordTTL = (ttl > 0xFFFFFFFFULL) ? 0xFFFFFFFFU : (uint32_t)ttl;
+                        uint32_t coeff = TtlContent->Coefficient;
+                        uint32_t base  = i->GetTTL(i);
+                        uint32_t prod;
+                        if( coeff != 0 && base > 0xFFFFFFFFU / coeff )
+                        {
+                            prod = 0xFFFFFFFFU;
+                        }
+                        else
+                        {
+                            prod = coeff * base;
+                        }
+                        RecordTTL = (prod >= 0xFFFFFFFFU - TtlContent->Increment)
+                                    ? 0xFFFFFFFFU
+                                    : prod + TtlContent->Increment;
                     }
                     break;
             }
@@ -683,6 +694,7 @@ static int DNSCache_AddAItemToCache(DnsSimpleParserIterator *i,
         } else {
             WARNING("No available cache: %s\n", Item);
             return -1;
+        }
         }
     }
 
@@ -963,6 +975,8 @@ static int DNSCache_GetByQuestion(__inout DnsGenerator *g,
                != NULL
                )
         {
+            uint32_t NewTTL;
+
             /* Guard against CNAME chains that loop (a->a or a->b->a),
                which would otherwise spin forever while holding CacheLock. */
             if( ++CNameDepth > 16 )
@@ -970,8 +984,6 @@ static int DNSCache_GetByQuestion(__inout DnsGenerator *g,
                 RWLock_UnRLock(CacheLock);
                 return -5;
             }
-
-            uint32_t NewTTL;
 
             if( IgnoreTTL == TRUE )
             {

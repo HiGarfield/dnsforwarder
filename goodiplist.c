@@ -185,6 +185,7 @@ static int InitListsAndTimes(ConfigFileInfo *ConfigInfo)
     {
         ListInfo    m;
         char n[128];
+        struct sockaddr_in *ipbuf;
 
         memset(&m, 0, sizeof(m));
         /* Point the Array at a heap buffer (NOT the in-structure Buffer). The
@@ -198,8 +199,7 @@ static int InitListsAndTimes(ConfigFileInfo *ConfigInfo)
            buffer (Array.Data is char*).  Receive the malloc result in a
            sockaddr_in* first so the allocation size matches the pointer type
            and static analysers (clang unix.MallocSizeof) stay quiet. */
-        struct sockaddr_in *ipbuf =
-            SafeMalloc(GOODIPLIST_MAX_IPS_PER_LIST * sizeof(struct sockaddr_in));
+        ipbuf = SafeMalloc(GOODIPLIST_MAX_IPS_PER_LIST * sizeof(struct sockaddr_in));
         if( ipbuf == NULL )
         {
             ERRORMSG("GoodIpList out of memory : %s\n", Itr);

@@ -89,7 +89,11 @@ static SOCKET SocketPool_FetchOnSet(SocketPool *sp,
                                     void **Data
                                     )
 {
-    SocketPool_Fetch_Arg ret = {INVALID_SOCKET, fs, Data};
+    SocketPool_Fetch_Arg ret;
+
+    ret.Sock = INVALID_SOCKET;
+    ret.fs = fs;
+    ret.DataOut = Data;
 
     sp->t.Enum(&(sp->t),
                (Bst_Enum_Callback)SocketPool_Fetch_Inner,

@@ -1407,8 +1407,11 @@ int SetSocketTimeout(SOCKET Sock, int OptName, int Timeout)
 
 BOOL SocketIsWritable(SOCKET sock, int Timeout)
 {
-    struct timeval TimeLimit = {Timeout / 1000, (Timeout % 1000) * 1000};
+    struct timeval TimeLimit;
     fd_set rfd;
+
+    TimeLimit.tv_sec = Timeout / 1000;
+    TimeLimit.tv_usec = (Timeout % 1000) * 1000;
 
     if( sock == INVALID_SOCKET )
     {
@@ -1434,7 +1437,10 @@ BOOL SocketIsWritable(SOCKET sock, int Timeout)
 BOOL SocketIsStillReadable(SOCKET Sock, int timeout)
 {
     fd_set rfd;
-    struct timeval TimeLimit = {timeout / 1000, (timeout % 1000) * 1000};
+    struct timeval TimeLimit;
+
+    TimeLimit.tv_sec = timeout / 1000;
+    TimeLimit.tv_usec = (timeout % 1000) * 1000;
 
     FD_ZERO(&rfd);
     FD_SET(Sock, &rfd);

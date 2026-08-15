@@ -955,14 +955,13 @@ int DnsGenerator_Init(DnsGenerator *g,
 
     if( CopyFrom != NULL && SourceLength > 0 )
     {
-        const int FourCounts[4] = {
-            DNSGetQuestionCount(CopyFrom),
-            DNSGetAnswerCount(CopyFrom),
-            Strip == TRUE ? 0 : DNSGetNameServerCount(CopyFrom),
-            Strip == TRUE ? 0 : DNSGetAdditionalCount(CopyFrom)
-        };
-
+        int FourCounts[4];
         int i;
+
+        FourCounts[0] = DNSGetQuestionCount(CopyFrom);
+        FourCounts[1] = DNSGetAnswerCount(CopyFrom);
+        FourCounts[2] = Strip == TRUE ? 0 : DNSGetNameServerCount(CopyFrom);
+        FourCounts[3] = Strip == TRUE ? 0 : DNSGetAdditionalCount(CopyFrom);
 
         if( Strip == TRUE )
         {

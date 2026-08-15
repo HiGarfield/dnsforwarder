@@ -3,6 +3,7 @@
 #include "pipes.h"
 #include "logs.h"
 #include <stdatomic.h>
+#include <errno.h>
 
 #ifdef _WIN32
 #include "winmsgque.h"
@@ -128,6 +129,42 @@ static int TimeTask_ReallyAdd(TaskInfo *i)
 {
     return TimeQueue.Add(&TimeQueue, i);
 }
+
+#ifndef _WIN32
+/* Read exactly one TaskInfo from the self-pipe. Returns:
+ *   1  -> a complete TaskInfo was read into *Out (safe to enqueue)
+ *   0  -> only a partial/short read happened (e.g. a 1-byte wake-up byte,
+ *        or the pipe was closed); *Out is NOT complete and must be discarded
+ *   -1 -> a fatal read error occurred
+ * READ_PIPE is a raw read(2) on a stream pipe and may return fewer bytes than
+ * requested (short read), so we loop until the whole structure is assembled.
+ * Without this loop a single read() that fills only part of *Out would leave
+ * the rest uninitialised and hand a corrupted task to TimeTask_ReallyAdd(). */
+#ifndef TIMEDTASK_UNITTEST
+static
+#endif /* TIMEDTASK_UNITTEST */
+int TimedTask_ReadOneTask(int fd, TaskInfo *Out)
+{
+    char   *Cur = (char *)Out;
+    size_t  Got = 0;
+
+    while( Got < sizeof(TaskInfo) )
+    {
+        ssize_t r = READ_PIPE(fd, Cur + Got, sizeof(TaskInfo) - Got);
+        if( r > 0 )
+        {
+            Got += (size_t)r;
+        } else if( r == 0 ) {
+            /* EOF / pipe closed: no more data. */
+            break;
+        } else if( errno != EINTR ) {
+            return -1;
+        }
+    }
+
+    return (Got == sizeof(TaskInfo)) ? 1 : 0;
+}
+#endif /* _WIN32 */
 
 static void
 #ifdef WIN32
@@ -324,15 +361,20 @@ TimeTask_Work(void *Unused)
 
             {
                 static TaskInfo ni;
+                int r = TimedTask_ReadOneTask(ReadFrom, &ni);
 
-                if( READ_PIPE(ReadFrom, &ni, sizeof(TaskInfo)) < 0 )
+                /* A partial/short read (e.g. a lone 1-byte wake-up byte from
+                   TimedTask_Cleanup, or a signal-interrupted read) MUST be
+                   discarded, never enqueued as a (corrupted) task. A complete
+                   read is safe to add. */
+                if( r == 1 )
                 {
-                    /** TODO: Show fatal error */
-                    break;
-                }
-
-                if( TimeTask_ReallyAdd(&ni) != 0 )
-                {
+                    if( TimeTask_ReallyAdd(&ni) != 0 )
+                    {
+                        /** TODO: Show fatal error */
+                        break;
+                    }
+                } else if( r < 0 ) {
                     /** TODO: Show fatal error */
                     break;
                 }

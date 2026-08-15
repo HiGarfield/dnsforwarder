@@ -38,7 +38,7 @@ jobs:
         shell: ${{matrix.shell}}
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7
 
       # https://github.com/msys2/setup-msys2
     - name: "${{matrix.os}}: Set up MSYS2"
@@ -82,7 +82,7 @@ jobs:
         fi
 
     - name: Upload
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v7
       with:
         name: dnsforwarder-${{github.head_ref || github.ref_name}}-${{matrix.env}}-${{matrix.os}}
         path: |

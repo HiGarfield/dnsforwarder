@@ -296,7 +296,15 @@ int Base64Decode(const char *File)
         goto EXIT_3;
     }
 
-    fwrite(ResultContent, 1, OutFileSize, fp);
+    /* A short write (disk full, I/O error) must not be reported as success:
+       the decoded file would be silently truncated and then loaded as if it
+       were complete. fclose() below is checked too, because buffered data can
+       still fail to reach the disk after every fwrite() has "succeeded". */
+    if( fwrite(ResultContent, 1, OutFileSize, fp) != (size_t)OutFileSize )
+    {
+        ret = -13;
+        goto EXIT_3;
+    }
     ret = 0;
 
 EXIT_3:
@@ -304,7 +312,12 @@ EXIT_3:
 EXIT_2:
     SafeFree(FileContent);
 EXIT_1:
-    fclose(fp);
+    /* Flush errors surface only here, so a close failure must not be ignored
+       on an otherwise successful path. */
+    if( fclose(fp) != 0 && ret == 0 )
+    {
+        ret = -14;
+    }
     return ret;
 
 #else /* _WIN32 */
@@ -400,7 +413,14 @@ EXIT_1:
         goto EXIT_5;
     }
 
-    fwrite(ResultContent, 1, OutputSize, fp);
+    /* A short write (disk full, I/O error) must not be reported as success:
+       the decoded file would be silently truncated and then loaded as if it
+       were complete. */
+    if( fwrite(ResultContent, 1, OutputSize, fp) != (size_t)OutputSize )
+    {
+        ret = -13;
+        goto EXIT_5;
+    }
     ret = 0;
 
 EXIT_5:
@@ -412,7 +432,12 @@ EXIT_3:
 EXIT_2:
     SafeFree(FileContent);
 EXIT_1:
-    fclose(fp);
+    /* Flush errors surface only here, so a close failure must not be ignored
+       on an otherwise successful path. */
+    if( fclose(fp) != 0 && ret == 0 )
+    {
+        ret = -14;
+    }
     return ret;
 #endif /* BASE64_DECODER_OPENSSL */
 #ifdef BASE64_DECODER_UUDECODE

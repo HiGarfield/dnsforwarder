@@ -333,6 +333,39 @@ static int TcpM_RecvWrapper(SOCKET Sock, char *Buffer, int BufferSize)
     return Recvlength;
 }
 
+/* Receive exactly `Length' bytes, or fail.
+ *
+ * TCP is a byte stream: a single recv() may return fewer bytes than requested
+ * however small the expected record is. Callers that parse a fixed-size record
+ * (the SOCKS5 handshake replies below) must not treat such a short read as a
+ * protocol error -- doing so both drops a perfectly good connection and leaves
+ * the unconsumed remainder in the socket, desynchronising every later read.
+ *
+ * Returns `Length' on success, or the negative error code from
+ * TcpM_RecvWrapper() (which already retries EINTR/EAGAIN and maps a peer
+ * close to a negative value) on failure. A close observed mid-record is an
+ * error: the record can never be completed. */
+static int TcpM_RecvAllWrapper(SOCKET Sock, char *Buffer, int Length)
+{
+    int Got = 0;
+
+    while( Got < Length )
+    {
+        int State = TcpM_RecvWrapper(Sock, Buffer + Got, Length - Got);
+
+        if( State <= 0 )
+        {
+            /* Propagate the original error code; never report a partial count
+               as success. */
+            return State < 0 ? State : -1;
+        }
+
+        Got += State;
+    }
+
+    return Got;
+}
+
 static int TcpM_ProxyPreparation(SOCKET Sock,
                                  const struct sockaddr  *NestedAddress,
                                  sa_family_t Family
@@ -353,7 +386,7 @@ static int TcpM_ProxyPreparation(SOCKET Sock,
         return -1;
     }
 
-    if( TcpM_RecvWrapper(Sock, RecvBuffer, 2) != 2 )
+    if( TcpM_RecvAllWrapper(Sock, RecvBuffer, 2) != 2 )
     {
         ERRORMSG("Cannot negotiate with TCP proxy.\n");
         return -2;
@@ -395,7 +428,7 @@ static int TcpM_ProxyPreparation(SOCKET Sock,
         return -4;
     }
 
-    if( TcpM_RecvWrapper(Sock, RecvBuffer, 4) != 4 )
+    if( TcpM_RecvAllWrapper(Sock, RecvBuffer, 4) != 4 )
     {
         ERRORMSG("Proxy Cannot communicate with TCP proxy.\n");
         return -9;
@@ -418,7 +451,7 @@ static int TcpM_ProxyPreparation(SOCKET Sock,
              * malicious) upstream proxy. Read it as unsigned into a separate
              * byte to avoid signed-char overflow/UB, and verify the read
              * actually succeeded before using the value. */
-            if( TcpM_RecvWrapper(Sock, &TmpByte, 1) != 1 )
+            if( TcpM_RecvAllWrapper(Sock, &TmpByte, 1) != 1 )
             {
                 ERRORMSG("Proxy Cannot communicate with TCP proxy.\n");
                 return -12;

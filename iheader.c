@@ -1,10 +1,15 @@
 #include <string.h>
+#include <time.h>
 #include "iheader.h"
 #include "dnsparser.h"
 #include "dnsgenerator.h"
 #include "common.h"
 #include "logs.h"
+#include "utils.h"
 #include "tcpfrontend.h"
+
+/* Upper bound on how long a single send-back may spend retrying. */
+#define SENDBACK_TIMEOUT_ms 2000
 
 static BOOL ap = FALSE;
 
@@ -186,6 +191,57 @@ BOOL MsgContext_IsFromTCP(const MsgContext *MsgCtx)
     return (h->BackAddress.family == AF_UNSPEC);
 }
 
+/* Write the whole buffer to a TCP socket.
+ *
+ * send() on a stream socket is free to accept only part of the buffer once the
+ * kernel send buffer fills up -- routine for a large answer or a slow/stalled
+ * client. Sending once and comparing against `Length' would report a failure
+ * while a truncated, unparseable reply had already been pushed to the client,
+ * because the length prefix promises bytes that never follow. Loop until the
+ * whole record is out, or until an error/timeout makes further progress
+ * impossible.
+ *
+ * Returns TRUE when everything was written. */
+static BOOL MsgContext_SendAllTcp(SOCKET Sock, const char *Buffer, int Length)
+{
+    time_t t = time(NULL);
+    int SentTotal = 0;
+
+    while( SentTotal < Length )
+    {
+        int Sent = send(Sock, Buffer + SentTotal, Length - SentTotal, MSG_NOSIGNAL);
+
+        if( Sent < 0 )
+        {
+            int LastError = GET_LAST_ERROR();
+
+            /* FatalErrorDecideding() maps EINTR / EAGAIN / EINPROGRESS (and
+               their Winsock equivalents) to "retryable"; anything else is
+               fatal. Bound the retrying so a wedged client cannot pin this
+               thread forever. */
+            if( FatalErrorDecideding(LastError) != 0 ||
+                    !SocketIsWritable(Sock, SENDBACK_TIMEOUT_ms) ||
+                    time(NULL) - t > SENDBACK_TIMEOUT_ms / 1000
+                    )
+            {
+                return FALSE;
+            }
+
+            continue;
+        }
+
+        if( Sent == 0 )
+        {
+            /* No progress is possible on a stream socket that accepts nothing. */
+            return FALSE;
+        }
+
+        SentTotal += Sent;
+    }
+
+    return TRUE;
+}
+
 int MsgContext_SendBack(MsgContext *MsgCtx)
 {
     IHeader *h = (IHeader *)MsgCtx;
@@ -201,12 +257,7 @@ int MsgContext_SendBack(MsgContext *MsgCtx)
 
         DNSSetTcpLength(Content, h->EntityLength);
 
-        SendResult = (send(h->SendBackSocket,
-                           Content,
-                           Length,
-                           MSG_NOSIGNAL
-                           )
-                      != Length);
+        SendResult = !MsgContext_SendAllTcp(h->SendBackSocket, Content, Length);
     } else {
         /* UDP */
         if( h->ReturnHeader )

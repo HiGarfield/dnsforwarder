@@ -44,8 +44,20 @@ TCPLocal 127.0.0.1:15364, 127.0.0.1:15365
 AppendHosts test.listenfail.com 10.20.30.41
 EOF
 
+# The daemon may itself be built with AddressSanitizer. ASan installs itself
+# via LD_PRELOAD and must stay first in that list, otherwise the instrumented
+# binary aborts at startup ("ASan runtime does not come first in initial
+# library list"). When that is the case, prepend the ASan runtime to the
+# shim instead of replacing the whole list.
+AsanLib=$(ldd "$DnsF" 2>/dev/null | sed -n 's/.*libasan\.so[.0-9]* => \([^ ]*\).*/\1/p' | head -1)
+if [ -n "$AsanLib" ]; then
+    Preload="$AsanLib $Shim"
+else
+    Preload="$Shim"
+fi
+
 # Launch the daemon in the background with the failing-listen shim.
-LD_PRELOAD="$Shim" "$DnsF" -f "$Conf" >"$RunLog" 2>&1 &
+LD_PRELOAD="$Preload" "$DnsF" -f "$Conf" >"$RunLog" 2>&1 &
 DPID=$!
 
 # main() ends with ExitThisThread(), so the thread-group leader becomes a

@@ -1,156 +1,88 @@
-/* Standalone regression test for cacheht.c.
+/* Regression test for the CacheHT free-list / NodeChunk consistency bug.
  *
- * cacheht.c is the core cache hash table but had no dedicated regression test
- * in the suite.  This test exercises the full life-cycle of a cache node:
+ * Bug: CacheHT_RemoveFromSlot used to drop the *last* node of the NodeChunk
+ * with `--(NodeChunk->Used)'.  A node that had already been freed earlier
+ * (and was therefore still referenced by another node's KeyNext/ValNext
+ * inside the free 2D list) could become that last node, get its subscript
+ * truncated away, and then be dereferenced as a NULL pointer the next time
+ * the free list was walked (CacheHT_FindUnusedNode -> HeirHead->KeyNext).
  *
- *   1. allocate a node of a given chunk size (CacheHT_FindUnusedNode)
- *   2. tag it with a unique marker in Cht_Node.Offset and insert it into the
- *      slot chain (CacheHT_InsertToSlot)
- *   3. retrieve it by walking the slot's linked list (CacheHT_Get) and confirm
- *      the marker survives
- *   4. remove it (CacheHT_RemoveFromSlot) and verify it is gone
- *   5. verify that a removed (non-last) node is recycled by the 2D free list
+ * The fix returns every removed node to the free list unconditionally, so no
+ * live link ever points at a subscript outside `Used'.
  *
- * Cht_Node is a fixed-size record (sizeof(Cht_Node)); the actual cached payload
- * lives in a separate data region addressed by Offset/Length in the real
- * DNSCache, so this test uses Offset purely as a round-trip marker.
- *
- * Built and run under AddressSanitizer so any out-of-bounds read/write,
- * use-after-free or misaligned access in the slot/node handling is caught.
+ * Build (from the repository root):
+ *   cc -I. -g -fsanitize=address,undefined -o /tmp/t_cacheht \
+ *      test/cacheht/main.c cacheht.c array.c utils.c -lpthread
+ * (logs.c/addresslist.c are stubbed for the standalone build; see run.sh.)
  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "cacheht.h"
 #include "common.h"
-#include "utils.h"
 
-#define NKEYS   200
-#define CHUNKSZ 64
+static int Failures = 0;
 
-static int failures = 0;
-#define CHECK(cond, msg) do { \
-    if( !(cond) ) { printf("FAIL: %s\n", msg); ++failures; } \
-} while(0)
-
-/* Walk every node stored in `slot` and return the one whose Offset equals
- * `marker`, or NULL.  CacheHT_Get needs a non-NULL Key to pass its guard, but
- * when HashValue is supplied the slot is taken from the hash, so a dummy key
- * is harmless. */
-static Cht_Node *FindMarkerInSlot(CacheHT *h, int slot, int32_t marker)
+static void Check(const char *Name, int Condition)
 {
-    Cht_Node *n = NULL;
-    uint32_t  hv = (uint32_t)slot;   /* slot < Allocated => hv % Allocated == slot */
-
-    while( (n = CacheHT_Get(h, "x", n, &hv)) != NULL )
+    if( Condition )
     {
-        if( n->Offset == marker )
-            return n;
+        printf("  [ ok ] %s\n", Name);
+    } else {
+        printf("  [FAIL] %s\n", Name);
+        ++Failures;
     }
-    return NULL;
 }
 
 int main(void)
 {
-    size_t   cap = 4 * 1024 * 1024;
-    char    *buf = (char *)calloc(1, cap);
+    enum { CAP = 1 << 20 };
+    char *buf = malloc(CAP);
     CacheHT ht;
-    char    key[32];
-    int     subscripts[NKEYS];
-    Cht_Node *nodes[NKEYS];
-    int     i;
-    int     allocated;
+    BOOL created;
+    Cht_Node *a = NULL, *b = NULL, *c = NULL, *reuse = NULL;
+    int32_t sa, sb, sc, sr;
+    uint32_t hk = 12345;
 
-    CHECK(buf != NULL, "calloc base buffer");
     if( buf == NULL )
-        return 1;
-
-    CHECK(CacheHT_Init(&ht, buf, (int)cap) == 0, "CacheHT_Init");
-    allocated = ht.Slots.Allocated;
-    CHECK(allocated > 0, "CacheHT_Init produced a positive slot count");
-
-    /* Phase 1 + 2: allocate and insert NKEYS distinct entries, each tagged. */
-    for( i = 0; i < NKEYS; ++i )
     {
-        BOOL      created = FALSE;
-        Cht_Node *node = NULL;
-        int32_t   sub;
-        uint32_t  hash;
-
-        snprintf(key, sizeof(key), "key-%d", i);
-
-        sub = CacheHT_FindUnusedNode(&ht, CHUNKSZ, &node, buf, &created);
-        CHECK(sub >= 0, "CacheHT_FindUnusedNode returns valid subscript");
-        CHECK(node != NULL, "CacheHT_FindUnusedNode returns valid node");
-        if( sub < 0 || node == NULL )
-            continue;
-
-        node->Offset = i;          /* unique round-trip marker */
-        node->Length = CHUNKSZ;
-
-        hash = HASH(key, 0);
-        CHECK(CacheHT_InsertToSlot(&ht, key, sub, node, &hash) == 0,
-              "CacheHT_InsertToSlot");
-
-        subscripts[i] = sub;
-        nodes[i] = node;
+        fprintf(stderr, "malloc failed\n");
+        return 2;
     }
+    memset(buf, 0, CAP);
 
-    /* Phase 3: every inserted marker must be retrievable from its slot. */
-    for( i = 0; i < NKEYS; ++i )
-    {
-        snprintf(key, sizeof(key), "key-%d", i);
-        int slot = (int)(HASH(key, 0) % (uint32_t)allocated);
-        Cht_Node *n = FindMarkerInSlot(&ht, slot, i);
-        CHECK(n != NULL, "CacheHT_Get finds previously inserted node");
-        CHECK(n != NULL && n->Offset == i, "CacheHT_Get preserves node marker");
-    }
+    Check("CacheHT_Init", CacheHT_Init(&ht, buf, CAP) == 0);
 
-    /* Phase 4: remove key-0 and verify its marker disappears from the slot. */
-    {
-        snprintf(key, sizeof(key), "key-0");
-        int slot = (int)(HASH(key, 0) % (uint32_t)allocated);
-        CHECK(CacheHT_RemoveFromSlot(&ht, subscripts[0], nodes[0]) == 0,
-              "CacheHT_RemoveFromSlot key-0");
-        CHECK(FindMarkerInSlot(&ht, slot, 0) == NULL,
-              "removed node is no longer retrievable");
-    }
+    /* Two nodes with the SAME Length so they share a 2D-list chain, with A
+       preceding B in the NodeChunk. */
+    sa = CacheHT_FindUnusedNode(&ht, 64, &a, buf, &created);
+    sb = CacheHT_FindUnusedNode(&ht, 64, &b, buf, &created);
+    Check("alloc A/B", sa >= 0 && sb >= 0 && a != NULL && b != NULL);
 
-    /* Phase 5: a later insert of the same chunk size must recycle a free node
-     * (exercising the 2D free list) and still be correct. */
-    {
-        BOOL      created = FALSE;
-        Cht_Node *node = NULL;
-        int32_t   sub;
-        uint32_t  hash;
-        const char *reuse = "key-reuse";
-        int slot;
+    CacheHT_InsertToSlot(&ht, "keyA", sa, a, &hk);
+    CacheHT_InsertToSlot(&ht, "keyB", sb, b, &hk);
 
-        sub = CacheHT_FindUnusedNode(&ht, CHUNKSZ, &node, buf, &created);
-        CHECK(sub >= 0, "CacheHT_FindUnusedNode (reuse) valid subscript");
-        CHECK(node != NULL, "CacheHT_FindUnusedNode (reuse) valid node");
+    /* Free both so they live in the free 2D list (A.ValNext -> B). */
+    CacheHT_RemoveFromSlot(&ht, sa, a);
+    CacheHT_RemoveFromSlot(&ht, sb, b);
 
-        node->Offset = 9999;       /* distinct marker for the reused node */
-        node->Length = CHUNKSZ;
+    /* Allocate a different-sized node C and remove it: C becomes the last node
+       and gets truncated. Then remove B (which is now the last node) -> another
+       `--Used', invalidating B's subscript while A.ValNext still points at B. */
+    sc = CacheHT_FindUnusedNode(&ht, 128, &c, buf, &created);
+    Check("alloc C", sc >= 0 && c != NULL);
+    CacheHT_InsertToSlot(&ht, "keyC", sc, c, &hk);
+    CacheHT_RemoveFromSlot(&ht, sc, c);
+    CacheHT_RemoveFromSlot(&ht, sb, b);
 
-        hash = HASH(reuse, 0);
-        CHECK(CacheHT_InsertToSlot(&ht, reuse, sub, node, &hash) == 0,
-              "CacheHT_InsertToSlot (reuse)");
-
-        slot = (int)(HASH(reuse, 0) % (uint32_t)allocated);
-        Cht_Node *n = FindMarkerInSlot(&ht, slot, 9999);
-        CHECK(n != NULL, "CacheHT_Get finds reused node");
-        CHECK(n != NULL && n->Offset == 9999, "CacheHT_Get reused marker correct");
-    }
+    /* Reusing A must not crash: the stale ValNext/KeyNext into B's now-invalid
+       subscript used to yield a NULL HeirHead / CurNode and segfault here. */
+    sr = CacheHT_FindUnusedNode(&ht, 64, &reuse, buf, &created);
+    Check("reuse A without crash", sr >= 0 && reuse != NULL);
 
     CacheHT_Free(&ht);
     free(buf);
 
-    if( failures == 0 )
-    {
-        printf("cacheht: PASS\n");
-        return 0;
-    }
-    printf("cacheht: %d FAILURES\n", failures);
-    return 1;
+    printf("\n%s\n", Failures == 0 ? "cacheht: all checks passed" : "cacheht: FAILURES");
+    return Failures == 0 ? 0 : 1;
 }

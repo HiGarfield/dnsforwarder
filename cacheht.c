@@ -124,6 +124,7 @@ int32_t CacheHT_FindUnusedNode(CacheHT      *h,
     Cht_2DList  *GrandHead = NULL;
     Cht_2DList  *PreHead = NULL;
     Cht_2DList  *CurHead = NULL;
+    Cht_2DList  *HeirHead = NULL;
     Cht_Node    *CurNode = NULL;
     int count = 0;
 
@@ -158,9 +159,31 @@ int32_t CacheHT_FindUnusedNode(CacheHT      *h,
 
             if( CurHead->ValNext >= 0 )
             {
-                Cht_2DList  *HeirHead;
                 HeirSubscript = CurHead->ValNext;
                 HeirHead = (Cht_2DList *)Array_GetBySubscript(NodeChunk, HeirSubscript);
+            } else {
+                HeirHead = NULL;
+            }
+
+            if( HeirHead == NULL )
+            {
+                /* Either there was no ValNext, or the ValNext pointed at a
+                   subscript that has since been truncated away: when
+                   CacheHT_RemoveFromSlot deletes the *last* node of the
+                   NodeChunk it does `--(NodeChunk->Used)' instead of pushing
+                   the node back onto the free 2D list, so any earlier node
+                   of the same Length whose ValNext still referenced that
+                   (now-invalid) subscript would otherwise make
+                   Array_GetBySubscript() return NULL and the dereference
+                   below crash. Follow KeyNext in that case. */
+                HeirSubscript = CurHead->KeyNext;
+                if( PreHead == NULL )
+                {
+                    h->Free2DList = HeirSubscript;
+                } else {
+                    PreHead->KeyNext = HeirSubscript;
+                }
+            } else {
                 HeirHead->KeyNext = CurHead->KeyNext;
                 HeirHead->TimeAdded = CurHead->TimeAdded;
                 HeirHead->Count = CurHead->Count;
@@ -191,15 +214,6 @@ int32_t CacheHT_FindUnusedNode(CacheHT      *h,
                     } else {
                         GrandHead->KeyNext = HeirSubscript;
                     }
-                }
-
-            } else {
-                HeirSubscript = CurHead->KeyNext;
-                if( PreHead == NULL )
-                {
-                    h->Free2DList = HeirSubscript;
-                } else {
-                    PreHead->KeyNext = HeirSubscript;
                 }
             }
 
@@ -371,7 +385,6 @@ static int CacheHT_AddTo2DList(CacheHT *h, int32_t SubScriptOfNode, Cht_Node *No
 
 int CacheHT_RemoveFromSlot(CacheHT *h, int32_t SubScriptOfNode, Cht_Node *Node)
 {
-    Array       *NodeChunk = &(h->NodeChunk);
     Cht_Slot    *Slot;
     Cht_Node    *Predecessor;
 
@@ -394,16 +407,18 @@ int CacheHT_RemoveFromSlot(CacheHT *h, int32_t SubScriptOfNode, Cht_Node *Node)
         Predecessor->Next = Node->Next;
     }
 
-    /* If this node is not the last one of NodeChunk, add it into free list,
-     * or simply delete it from NodeChunk
-     */
-    if( SubScriptOfNode != NodeChunk->Used - 1 )
-    {
-        CacheHT_AddTo2DList(h, SubScriptOfNode, Node);
-        ++FreeNodeCount;
-    } else {
-        --(NodeChunk->Used);
-    }
+    /* Every removed node is returned to the free 2D list, regardless of
+       whether it was the last one in the NodeChunk. Previously the last node
+       was simply dropped with `--(NodeChunk->Used)', but a node that had
+       already been freed earlier (and was therefore still referenced by some
+       other node's KeyNext/ValNext inside the free list) could become the
+       last node, get its subscript truncated away, and then be dereferenced
+       as a NULL pointer the next time the free list was walked
+       (CacheHT_FindUnusedNode). Reusing freed nodes through the free list also
+       keeps the allocation count correct without ever handing out a subscript
+       that is no longer backed by `Used'. */
+    CacheHT_AddTo2DList(h, SubScriptOfNode, Node);
+    ++FreeNodeCount;
 
     return 0;
 }

@@ -892,12 +892,24 @@ static Cht_Node *DNSCache_GetCNameFromCache(__in char *Name,
          * NUL-terminated string whose length is only bounded by the on-disk
          * cache file. Copy it with an explicit upper bound so a corrupted or
          * oversized cache entry cannot overflow `Buffer` (a 254-byte stack
-         * array at the call site). */
+         * array at the call site). DNSCache_FindFromCache only bounds the key
+         * portion (Offset + 1 + Length); the target that follows it could sit
+         * partly or wholly outside the mapping when the cache file is
+         * truncated, so also clamp the source read to CacheSize to avoid an
+         * out-of-bounds read of the mapping. */
         {
             const char *Src = MapStart + Node->Offset + 1 + strlen(Name_Type_Class) + 1;
             int j;
+            int32_t SrcAvail;
 
-            for( j = 0; j < BufferLength - 1 && Src[j] != '\0'; ++j )
+            if( Src >= MapStart + CacheSize )
+            {
+                SrcAvail = 0;
+            } else {
+                SrcAvail = CacheSize - (int32_t)(Src - MapStart);
+            }
+
+            for( j = 0; j < BufferLength - 1 && j < SrcAvail && Src[j] != '\0'; ++j )
             {
                 Buffer[j] = Src[j];
             }

@@ -91,7 +91,15 @@ static void DNSCacheTTLCountdown_Task(void *Unused, void *Unused2)
             {
                 Node->TTL = 0;
 
-                *(char *)(MapStart + Node->Offset) = 0xFD;
+                /* Mark the slot as expired with a sentinel byte. The field is
+                   declared `char' (signed) in the shared mmap layout, so
+                   writing 0xFD (253) directly triggers -Woverflow under
+                   -Wconversion/-pedantic because 253 is out of range for a
+                   signed char (it would wrap to -3). Cast through unsigned
+                   char so the byte stored is exactly 0xFD; no code path ever
+                   reads this sentinel back, so the value is purely cosmetic,
+                   but the cast keeps the strict build warning-free. */
+                *(unsigned char *)(MapStart + Node->Offset) = 0xFD;
 
                 CacheHT_RemoveFromSlot(CacheInfo, loop, Node);
 

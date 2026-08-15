@@ -851,7 +851,16 @@ TcpM_Works(TcpM *m)
                             )
                         {
                             INFO("TCP retrying for %s ...\n", Header2->Domain);
+                            /* TcpM_Send_Actual mutates the shared, non-thread-safe
+                               m->Puller / m->QueryPuller (and the per-module context
+                               BST). The frontend thread does the same under m->Lock
+                               (see TcpM_Send and the listen-socket path above), so
+                               this retry must be serialized too; otherwise the two
+                               threads race on the puller's fd_set / internal arrays.
+                               TcpM_Send_Actual does NOT take the lock itself. */
+                            EFFECTIVE_LOCK_GET(m->Lock);
                             TcpM_Send_Actual(m, Ctx.MsgCtx, Ctx.ServerIndex);
+                            EFFECTIVE_LOCK_RELEASE(m->Lock);
                         }
                         CLOSE_SOCKET(s);
                         Got = -1;

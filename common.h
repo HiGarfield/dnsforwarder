@@ -303,10 +303,17 @@
 /* something is STILL on some state */
 #define __STILL
 
-#ifdef HAVE_STDINT_H
+/* Prefer the system <stdint.h> whenever it is available.  Defining the
+   fixed-width types with object-like macros (e.g. `#define int32_t int`)
+   collides with the real `typedef int int32_t;` inside <stdint.h> the moment
+   any other header pulls it in (clang's <stdatomic.h> does), producing
+   "cannot combine with previous 'int' declaration specifier".  Old Microsoft
+   compilers (pre-VS2010) shipped without <stdint.h>, so fall back to the macro
+   definitions only when the header is genuinely unavailable. */
+#if defined(HAVE_STDINT_H) || \
+    (defined(__has_include) && __has_include(<stdint.h>))
     #include <stdint.h>
-#else
-#ifndef HAVE_CONFIG_H
+#elif !defined(HAVE_CONFIG_H)
     #ifndef __USE_MISC
 
         #if (INT_MAX == 2147483647)
@@ -321,7 +328,6 @@
         #endif
 
     #endif
-#endif
 #endif
 
 #ifndef HAVE_IN_PORT_T

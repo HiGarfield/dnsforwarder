@@ -6,6 +6,32 @@
     #include "config.h"
 #endif /* HAVE_CONFIG_H */
 
+/* C89 compatibility shims.
+ * The codebase uses a few C99/C11 constructs (inline functions, the
+ * _Atomic qualifier, long long) that are not part of ISO C90.  To keep a
+ * single source tree that still builds cleanly under `-std=c89
+ * -pedantic-errors` on both GCC and Clang, provide portable fallbacks here
+ * instead of scattering #ifdefs through every translation unit. */
+
+/* `inline` is a C99 keyword.  Under strict ISO C90 GCC/Clang still treat it
+ * as a reserved word, so map it to the compiler's C89-era extension keyword
+ * (`__inline` on GCC/Clang, `__inline` on MSVC) which is valid there.  On a
+ * real C99+ compiler leave `inline` untouched. */
+#if !defined(__cplusplus)
+    #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+        /* C99 or later: keep `inline`. */
+    #elif defined(_MSC_VER)
+        #define inline __inline
+    #else
+        #define inline __inline
+    #endif
+#endif
+
+/* NOTE: `long long` is handled per-translation-unit.  We deliberately do NOT
+ * text-substitute it here (a `#define long long long` would corrupt
+ * `unsigned long long` and integer constants); the few files that use it are
+ * fixed directly at their use sites. */
+
 /* There are many differeces between Linux and Windows.
  * And we defined things here to unify interfaces,
  * but it doesn't seem to be very good. */

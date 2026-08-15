@@ -2,7 +2,6 @@
 #include "linkedqueue.h"
 #include "pipes.h"
 #include "logs.h"
-#include <stdatomic.h>
 #include <errno.h>
 
 #ifdef _WIN32
@@ -36,11 +35,15 @@ static PIPE_HANDLE  WriteTo, ReadFrom;
 #endif /* _WIN32 */
 
 /* Signal for the worker thread to exit; set by TimedTask_Cleanup. */
-/* Signalled by TimedTask_Cleanup() and polled by the worker thread. It is an
-   atomic so the write in Cleanup() and the reads in the worker do not race
-   (ThreadSanitizer otherwise reports a data race on it at shutdown). The
-   actual wake-up of the worker is done with the self-pipe, not by this flag. */
-static _Atomic BOOL      TimedTask_ToExit = FALSE;
+/* Signalled by TimedTask_Cleanup() and polled by the worker thread. Accessed
+   only under TimedTask_ExitMutex so the write in Cleanup() and the reads in the
+   worker do not race (a plain BOOL guarded by a POSIX mutex/pthread_mutex_t).
+   The actual wake-up of the worker is done with the self-pipe, not by this
+   flag. */
+static BOOL             TimedTask_ToExit = FALSE;
+/* Protects TimedTask_ToExit; initialised in TimedTask_Init, destroyed in
+   TimedTask_Cleanup. */
+static MutexHandle      TimedTask_ExitMutex;
 /* Joinable handle of the worker thread (kept joinable, not detached). */
 static ThreadHandle     TimedTask_Worker = NULL_THREAD;
 
@@ -219,8 +222,13 @@ TimeTask_Work(void *Unused)
     while( TRUE )
     {
         static TaskInfo *New;
+        BOOL WantExit;
 
-        if( TimedTask_ToExit )
+        GET_MUTEX(TimedTask_ExitMutex);
+        WantExit = TimedTask_ToExit;
+        RELEASE_MUTEX(TimedTask_ExitMutex);
+
+        if( WantExit )
         {
             break;
         }
@@ -301,7 +309,13 @@ TimeTask_Work(void *Unused)
 
     while( TRUE )
     {
-        if( TimedTask_ToExit )
+        BOOL WantExit;
+
+        GET_MUTEX(TimedTask_ExitMutex);
+        WantExit = TimedTask_ToExit;
+        RELEASE_MUTEX(TimedTask_ExitMutex);
+
+        if( WantExit )
         {
             break;
         }
@@ -465,7 +479,9 @@ static void TimedTask_Cleanup(void)
 {
     /* Signal the worker to exit and wait for it to terminate so it does
        not touch the queue/pipe after we free them. */
+    GET_MUTEX(TimedTask_ExitMutex);
     TimedTask_ToExit = TRUE;
+    RELEASE_MUTEX(TimedTask_ExitMutex);
 
 #ifdef _WIN32
     /* Posting a message sets the internal event and wakes the worker
@@ -492,6 +508,8 @@ static void TimedTask_Cleanup(void)
     close(ReadFrom);
     close(WriteTo);
 #endif /* _WIN32 */
+
+    DESTROY_MUTEX(TimedTask_ExitMutex);
 }
 
 int TimedTask_Init(void)
@@ -508,6 +526,11 @@ int TimedTask_Init(void)
     }
 
     atexit(TimedTask_Cleanup);
+
+    if( CREATE_MUTEX(TimedTask_ExitMutex) != 0 )
+    {
+        return -248;
+    }
 
 #ifdef _WIN32
     if( WinMsgQue_Init(&MsgQue, sizeof(TaskInfo)) != 0 )

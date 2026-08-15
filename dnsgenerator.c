@@ -279,9 +279,14 @@ static int DnsGenerator_CName(DnsGenerator *g,
     if( p != DNS_RECORD_PURPOSE_ANSWER &&
         p != DNS_RECORD_PURPOSE_NAME_SERVER &&
         p != DNS_RECORD_PURPOSE_ADDITIONAL
-        )
+    )
     {
         return 1;
+    }
+
+    if( CName == NULL )
+    {
+        return -7;
     }
 
     if( DnsGenerator_NamePart(g, Name) != 0 )

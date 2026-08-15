@@ -844,6 +844,16 @@ int MMgr_Init(ConfigFileInfo *ConfigInfo)
 
 int Modules_Update(void)
 {
+    /* CurrConfigInfo is assigned by Modules_Load() during MMgr_Init(). A
+       reload triggered (e.g. by the dynamic-hosts timer) before that point
+       would otherwise pass NULL straight into ConfigGetBoolean(), which
+       dereferences it and crashes. Guard against the not-yet-initialized
+       state. */
+    if( CurrConfigInfo == NULL )
+    {
+        return 0;
+    }
+
     if ( ConfigGetBoolean(CurrConfigInfo, "ReloadGroupFile") )
     {
         Modules_Load(CurrConfigInfo);

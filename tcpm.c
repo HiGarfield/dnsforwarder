@@ -499,7 +499,14 @@ static int TcpM_Send_Actual(TcpM *m, MsgContext *MsgCtx, int SingleServerIndex)
             p->Del(p, s);
         }
 
-        if( m->SocksProxies != NULL && TcpCtx->Queried == 0 )
+        /* p->Del returns the node holding TcpCtx to p's (QueryPuller's) free
+           list, where it can be reused by a concurrent Add.  Copy it out so
+           the references below are not dangling (use-after-free / data race).
+           This mirrors the fix at TcpM_Works() that introduced a local Ctx. */
+        {
+            TcpContext Ctx = *TcpCtx;
+
+        if( m->SocksProxies != NULL && Ctx.Queried == 0 )
         {
             struct sockaddr *addr;
             sa_family_t family;
@@ -535,14 +542,16 @@ static int TcpM_Send_Actual(TcpM *m, MsgContext *MsgCtx, int SingleServerIndex)
             continue;
         }
 
-        DEBUG("Sent by Pullers[%d].\n", TcpCtx->ServerIndex);
+        DEBUG("Sent by Pullers[%d].\n", Ctx.ServerIndex);
 
-        TcpCtx->LastActivity = time(NULL);
-        TcpCtx->Queried++;
-        TcpCtx->MsgCtxQid = DNSGetQueryIdentifier(h + 1);
-        TcpCtx->MsgCtxHash = h->HashValue;
-        TcpCtx->MsgCtx = MsgCtx;
-        m->Puller.Add(&(m->Puller), s, TcpCtx, sizeof(TcpContext));
+        Ctx.LastActivity = time(NULL);
+        Ctx.Queried++;
+        Ctx.MsgCtxQid = DNSGetQueryIdentifier(h + 1);
+        Ctx.MsgCtxHash = h->HashValue;
+        Ctx.MsgCtx = MsgCtx;
+        m->Puller.Add(&(m->Puller), s, &Ctx, sizeof(TcpContext));
+
+        }   /* end of copied TcpCtx scope */
 
         n++;
     }

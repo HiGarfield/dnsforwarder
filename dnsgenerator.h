@@ -34,7 +34,26 @@
 
 #define DNSSetAdditionalCount(dns_start, AdC)   SET_16_BIT_U_INT((char *)(dns_start) + 10, AdC)
 
-#define DNSLabelMakePointer(pointer_ptr, location)  (((unsigned char *)(pointer_ptr))[0] = (192 + (location) / 256), ((unsigned char *)(pointer_ptr))[1] = (location) % 256)
+/* Build a DNS name-compression pointer (RFC 1035 §4.1.4).
+   A compression pointer is a 2-byte sequence whose top two bits must be
+   set (0xC0) and whose remaining 14 bits encode the offset (0..16383).
+   The previous implementation added (location/256) to 192, which for any
+   offset > 255 produced a first byte whose top two bits were no longer
+   `11`, yielding an illegal pointer that downstream resolvers cannot
+   follow.  Mask the high byte correctly and reject out-of-range offsets. */
+#define DNSLabelMakePointer(pointer_ptr, location)                       \
+    do {                                                                 \
+        int _loc = (int)(location);                                      \
+        if( _loc >= 0 && _loc <= 0x3FFF ) {                              \
+            ((unsigned char *)(pointer_ptr))[0] = (unsigned char)(0xC0 | (_loc >> 8)); \
+            ((unsigned char *)(pointer_ptr))[1] = (unsigned char)(_loc & 0xFF); \
+        } else {                                                         \
+            /* Out-of-range: emit a root label so the record stays       \
+               parseable instead of an invalid pointer. */               \
+            ((unsigned char *)(pointer_ptr))[0] = 0;                     \
+            ((unsigned char *)(pointer_ptr))[1] = 0;                     \
+        }                                                                \
+    } while(0)
 
 char *DNSLabelizedName(__inout char *Origin, __in size_t OriginSpaceLength);
 

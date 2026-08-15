@@ -614,10 +614,13 @@ void ConfigSetDefaultValue(ConfigFileInfo *Info, VType Value, const char *KeyNam
             case TYPE_PATH:
             case TYPE_STRING:
                 Option->Holder.str.Clear(&(Option->Holder.str));
-                Option->Holder.str.Add(&(Option->Holder.str),
-                                       Value.str,
-                                       Option->Delimiters
-                                       );
+                if( Value.str != NULL )
+                {
+                    Option->Holder.str.Add(&(Option->Holder.str),
+                                           Value.str,
+                                           Option->Delimiters
+                                           );
+                }
                 break;
 
             default:

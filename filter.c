@@ -187,6 +187,11 @@ static int FilterType_Init(ConfigFileInfo *ConfigInfo)
 
     if( StringListIterator_Init(&sli, DisableType_Str) != 0 )
     {
+        /* InitBst succeeded and allocated DisabledTypes; release it before
+           bailing out to avoid leaking the BST and its backing memory. */
+        DisabledTypes->Free(DisabledTypes);
+        free(DisabledTypes);
+        DisabledTypes = NULL;
         return -2;
     }
 

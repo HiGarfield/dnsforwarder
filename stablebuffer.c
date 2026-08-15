@@ -36,15 +36,21 @@ static StableBuffer_MetaInfo *Realloc(Array *MetaInfo, int DataLength)
     /* DataLength and BLOCK_ORDER are both `int`, so their product can
        overflow (signed integer overflow is undefined behaviour) once a
        long-lived buffer such as HostsContainer::Table accumulates enough
-       blocks.  Compute in 64-bit and reject a request that would not fit in
-       the int32_t `Amount` field (or that wrapped), instead of handing a
-       negative/wrong size to SafeMalloc. */
-    long long Product = (long long)DataLength * BLOCK_ORDER;
-    if( Product <= 0 || Product > (long long)INT_MAX )
+       blocks.  ISO C90 has no `long long`, so detect the overflow with a
+       pre-check on BLOCK_ORDER instead of widening to 64 bits: if the
+       multiplication would exceed INT_MAX, reject the request rather than
+       handing a wrapped (negative/wrong) size to SafeMalloc.  SafeMalloc
+       takes a size_t but m.Amount is int32_t, so capping at INT_MAX keeps
+       the byte count representable in both. */
+    int Product;
+
+    if( BLOCK_ORDER <= 0 || DataLength <= 0 ||
+        DataLength > INT_MAX / BLOCK_ORDER )
     {
         return NULL;
     }
-    m.Amount = (int32_t)ROUND_UP((int)Product, sizeof(void *));
+    Product = DataLength * BLOCK_ORDER;
+    m.Amount = (int32_t)ROUND_UP(Product, (int)sizeof(void *));
     m.Used = 0;
     m.Start = SafeMalloc((size_t)m.Amount);
     if( m.Start == NULL )

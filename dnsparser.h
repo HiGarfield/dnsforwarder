@@ -78,28 +78,28 @@ int DNSGetHostNameLength(const char *DNSBody, int DNSBodyLength, const char *Nam
  * https://tools.ietf.org/html/rfc6895
  */
 typedef struct _DNSMessageProperties{
-    uint16_t    Direction   :   1; /* query (0), or response (1) */
+    unsigned int    Direction   :   1; /* query (0), or response (1) */
 
     /* Type:
      * 0    a standard query (QUERY).
      * 1    an inverse query (IQUERY).
      * 2    a server status request (STATUS).
      * 3-15 reserved for future use  */
-    uint16_t Type           :   4;
+    unsigned int Type           :   4;
 
-    uint16_t    AuthoritativeAnswer:1;
+    unsigned int    AuthoritativeAnswer:1;
 
-    uint16_t    TrunCation      :   1;
+    unsigned int    TrunCation      :   1;
 
-    uint16_t    RecursionDesired:   1; /* 0 no, 1 yes */
+    unsigned int    RecursionDesired:   1; /* 0 no, 1 yes */
 
-    uint16_t    RecursionAvailable: 1; /* 0 no, 1 yes */
+    unsigned int    RecursionAvailable: 1; /* 0 no, 1 yes */
 
-    uint16_t    Unused          :   1;
+    unsigned int    Unused          :   1;
 
-    uint16_t AuthenticData  :   1;
+    unsigned int AuthenticData  :   1;
 
-    uint16_t CheckingDisabled:  1;
+    unsigned int CheckingDisabled:  1;
 
     /* ResponseCode:
      * 0    No error condition.
@@ -109,25 +109,25 @@ typedef struct _DNSMessageProperties{
      * 4    Not Implemented - The name server does not support the requested kind of query.
      * 5    Refused - The name server refuses to perform the specified operation for policy reasons. For example, a name server may not wish to provide the information to the particular requester, or a name server may not wish to perform a particular operation (e.g., zone transfer) for particular data.
      * 6-15 Reserved for future use. */
-    uint16_t    ResponseCode    :   4;
+    unsigned int    ResponseCode    :   4;
 
 }DNSFlags;
 #else
 typedef struct _DNSMessageProperties{
-    uint16_t    RecursionDesired:   1; /* 0 no, 1 yes */
+    unsigned int    RecursionDesired:   1; /* 0 no, 1 yes */
 
-    uint16_t    TrunCation      :   1;
+    unsigned int    TrunCation      :   1;
 
-    uint16_t    AuthoritativeAnswer:1;
+    unsigned int    AuthoritativeAnswer:1;
 
     /* Type:
      * 0    a standard query (QUERY).
      * 1    an inverse query (IQUERY).
      * 2    a server status request (STATUS).
      * 3-15 reserved for future use  */
-    uint16_t Type           :   4;
+    unsigned int Type           :   4;
 
-    uint16_t    Direction   :   1; /* query (0), or response (1) */
+    unsigned int    Direction   :   1; /* query (0), or response (1) */
 
 
     /* ResponseCode:
@@ -138,15 +138,15 @@ typedef struct _DNSMessageProperties{
      * 4    Not Implemented - The name server does not support the requested kind of query.
      * 5    Refused - The name server refuses to perform the specified operation for policy reasons. For example, a name server may not wish to provide the information to the particular requester, or a name server may not wish to perform a particular operation (e.g., zone transfer) for particular data.
      * 6-15 Reserved for future use. */
-    uint16_t    ResponseCode    :   4;
+    unsigned int    ResponseCode    :   4;
 
-    uint16_t CheckingDisabled:  1;
+    unsigned int CheckingDisabled:  1;
 
-    uint16_t AuthenticData  :   1;
+    unsigned int AuthenticData  :   1;
 
-    uint16_t    Unused          :   1;
+    unsigned int    Unused          :   1;
 
-    uint16_t    RecursionAvailable: 1; /* 0 no, 1 yes */
+    unsigned int    RecursionAvailable: 1; /* 0 no, 1 yes */
 
 }DNSFlags;
 #endif
@@ -177,13 +177,13 @@ int DNSCopyLable(const char *DNSBody,
 
 typedef enum _DnsDirection{
     DNS_DIRECTION_QUERY = 0,
-    DNS_DIRECTION_RESPONSE = 1,
+    DNS_DIRECTION_RESPONSE = 1
 } DnsDirection;
 
 typedef enum _DnsOperation{
     DNS_OPERATION_QUERY = 0,
     DNS_OPERATION_IQUERY = 1,
-    DNS_OPERATION_STATUS = 2,
+    DNS_OPERATION_STATUS = 2
 } DnsOperation;
 
 typedef enum _ResponseCode{
@@ -192,7 +192,7 @@ typedef enum _ResponseCode{
     RESPONSE_CODE_SERVER_FAILURE = 2,
     RESPONSE_CODE_NAME_ERROR = 3,
     RESPONSE_CODE_NOT_IMPLEMENTED = 4,
-    RESPONSE_CODE_REFUSED = 5,
+    RESPONSE_CODE_REFUSED = 5
 } ResponseCode;
 
 typedef enum _DnsRecordPurpose{
@@ -201,7 +201,7 @@ typedef enum _DnsRecordPurpose{
     DNS_RECORD_PURPOSE_QUESTION,
     DNS_RECORD_PURPOSE_ANSWER,
     DNS_RECORD_PURPOSE_NAME_SERVER,
-    DNS_RECORD_PURPOSE_ADDITIONAL,
+    DNS_RECORD_PURPOSE_ADDITIONAL
 } DnsRecordPurpose;
 
 typedef struct _DnsSimpleParser DnsSimpleParser;

@@ -45,14 +45,14 @@ typedef enum _DNSRecordType{
     DNS_TYPE_AXFR       =   252,
     DNS_TYPE_ANY        =   255,
     DNS_TYPE_TA         =   32768,
-    DNS_TYPE_DLV        =   32769,
+    DNS_TYPE_DLV        =   32769
 }DNSRecordType;
 
 typedef enum _DNSRecordClass{
     DNS_CLASS_UNKNOWN   =   0,
     DNS_CLASS_IN        =   1,
     DNS_CLASS_CH        =   3,
-    DNS_CLASS_ANY       =   255,
+    DNS_CLASS_ANY       =   255
 }DNSRecordClass;
 
 typedef struct _DNSTypeName{

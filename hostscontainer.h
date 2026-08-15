@@ -13,7 +13,7 @@ typedef enum _HostsRecordType{
     HOSTS_TYPE_AAAA = 1 << 2,
     HOSTS_TYPE_CNAME = 1 << 3,
     HOSTS_TYPE_EXCLUEDE = 1 << 4,
-    HOSTS_TYPE_GOOD_IP_LIST = 1 << 5,
+    HOSTS_TYPE_GOOD_IP_LIST = 1 << 5
 
 } HostsRecordType;
 

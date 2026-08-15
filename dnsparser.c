@@ -112,7 +112,7 @@ int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart
                DNSJumpOverName helper, which passes DNSBody == NULL. */
             if( DNSBody != NULL && NameItr == DNSBody + LabelPointer )
             {
-                // malformed, dead loop
+                /* malformed, dead loop */
                 return -1;
             }
             /* Guard against malformed messages whose pointers reference
@@ -122,7 +122,7 @@ int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart
             ++RedirectCount;
             if( RedirectCount > DNSBodyLength / 2 )
             {
-                // malformed, dead loop
+                /* malformed, dead loop */
                 return -1;
             }
             if( buffer == NULL )

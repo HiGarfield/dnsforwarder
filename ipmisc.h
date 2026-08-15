@@ -9,7 +9,7 @@
 typedef enum _MiscType {
     IP_MISC_TYPE_UNKNOWN = 0,
     IP_MISC_TYPE_BLOCK,
-    IP_MISC_TYPE_SUBSTITUTE,
+    IP_MISC_TYPE_SUBSTITUTE
 } MiscType;
 
 #define IP_MISC_NOTHING 0

@@ -44,6 +44,12 @@ static BOOL             TimedTask_ToExit = FALSE;
 /* Protects TimedTask_ToExit; initialised in TimedTask_Init, destroyed in
    TimedTask_Cleanup. */
 static MutexHandle      TimedTask_ExitMutex;
+/* Becomes TRUE only after every resource TimedTask_Cleanup touches has been
+   successfully created.  Guarding Cleanup with it prevents the atexit-registered
+   shutdown from operating on half-initialised state (e.g. a pthread_mutex_t that
+   CREATE_MUTEX failed to init, or the ReadFrom/WriteTo pipe fds that are still
+   the uninitialised value 0) which would be undefined behaviour / close stdin. */
+static BOOL             TimedTask_Initialised = FALSE;
 /* Joinable handle of the worker thread (kept joinable, not detached). */
 static ThreadHandle     TimedTask_Worker = NULL_THREAD;
 
@@ -181,6 +187,24 @@ TimeTask_RunTack(void *i)
 
     if( Info->Persistent )
     {
+        BOOL KeepRunning;
+
+        /* Consult the exit flag under the mutex before re-posting: once
+           TimedTask_Cleanup has set it, the worker is about to free the queue
+           and close the pipe. Re-posting a persistent *asynchronous* task here
+           would WRITE_PIPE() into an already-closed (or recycled) fd and/or
+           hand a dangling TaskInfo to a freed queue -- a use-after-free and
+           possible cross-socket data corruption at shutdown. Bail out instead
+           so the task dies quietly. */
+        GET_MUTEX(TimedTask_ExitMutex);
+        KeepRunning = !TimedTask_ToExit;
+        RELEASE_MUTEX(TimedTask_ExitMutex);
+
+        if( !KeepRunning )
+        {
+            return;
+        }
+
         Info->LeftTime = Info->TimeOut;
         if( Info->Asynchronous )
         {
@@ -477,6 +501,14 @@ static int Compare(const void *One, const void *Two)
 
 static void TimedTask_Cleanup(void)
 {
+    /* If Init never finished (or never ran), the resources below are either
+       uninitialised or partially created; touching them would be UB.  Bail out
+       without touching anything. */
+    if( !TimedTask_Initialised )
+    {
+        return;
+    }
+
     /* Signal the worker to exit and wait for it to terminate so it does
        not touch the queue/pipe after we free them. */
     GET_MUTEX(TimedTask_ExitMutex);
@@ -525,27 +557,36 @@ int TimedTask_Init(void)
         return -20;
     }
 
-    atexit(TimedTask_Cleanup);
-
     if( CREATE_MUTEX(TimedTask_ExitMutex) != 0 )
     {
+        TimeQueue.Free(&TimeQueue);
         return -248;
     }
 
 #ifdef _WIN32
     if( WinMsgQue_Init(&MsgQue, sizeof(TaskInfo)) != 0 )
     {
+        DESTROY_MUTEX(TimedTask_ExitMutex);
+        TimeQueue.Free(&TimeQueue);
         return -247;
     }
 #else /* _WIN32 */
     if( !CREATE_PIPE_SUCCEEDED(CREATE_PIPE(&ReadFrom, &WriteTo)) )
     {
+        DESTROY_MUTEX(TimedTask_ExitMutex);
+        TimeQueue.Free(&TimeQueue);
         return -25;
     }
 #endif /* _WIN32 */
 
     CREATE_THREAD(TimeTask_Work, NULL, t);
     TimedTask_Worker = t;
+
+    /* Only now are all the resources Cleanup touches fully initialised.
+       Register the shutdown hook last so a failed init (above) never leaves
+       atexit pointing at half-built state. */
+    TimedTask_Initialised = TRUE;
+    atexit(TimedTask_Cleanup);
 
     return 0;
 }

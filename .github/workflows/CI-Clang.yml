@@ -45,7 +45,9 @@ jobs:
         install: >-
           mingw-w64-clang-${{matrix.env}}-gcc-compat
           mingw-w64-clang-${{matrix.env}}-clang-analyzer
+          mingw-w64-clang-${{matrix.env}}-python
           make
+          perl
 
     - name: "${{matrix.os}}: Setup and Config"
       if: runner.os == 'Linux'

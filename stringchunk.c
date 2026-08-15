@@ -255,6 +255,9 @@ BOOL StringChunk_Match_OnlyWildCard_GetOne(StringChunk  *dl,
 
     EntryForString *FoundEntry;
 
+    void *Result = NULL;
+    BOOL Matched = FALSE;
+
     int loop;
 
     if( dl == NULL )
@@ -297,6 +300,10 @@ BOOL StringChunk_Match_OnlyWildCard_GetOne(StringChunk  *dl,
 
     pm = Array_GetUsed(&Matches) > 0 ? &Matches : &MatchesAny;
 
+    /* `Data' is an optional output parameter: callers that only need the
+       boolean match result (e.g. StringChunk_Domain_Match_WildCardRandom
+       invoked with Data == NULL) must not make us write through NULL. Keep
+       the result locally and only publish it when a sink was supplied. */
     if( Array_GetUsed(pm) > 0 )
     {
         /* Seed the PRNG only once. Calling srand(time(NULL)) on every lookup
@@ -310,14 +317,18 @@ BOOL StringChunk_Match_OnlyWildCard_GetOne(StringChunk  *dl,
             srand((unsigned int)time(NULL));
             Seeded = TRUE;
         }
-        *Data = *((void **)Array_GetBySubscript(pm, rand() % Array_GetUsed(pm)));
-    } else {
-        *Data = NULL;
+        Result = *((void **)Array_GetBySubscript(pm, rand() % Array_GetUsed(pm)));
+        Matched = TRUE;
     }
     Array_Free(&MatchesAny);
     Array_Free(&Matches);
 
-    return *Data != NULL;
+    if( Data != NULL )
+    {
+        *Data = Result;
+    }
+
+    return Matched;
 }
 
 BOOL StringChunk_Match(StringChunk      *dl,

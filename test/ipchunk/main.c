@@ -99,6 +99,46 @@ int main(void)
 
     IpChunk_Free(&ic);
 
+    /* Regression test: IpAddr_From4 must not assume its 4 source octets are
+     * 32-bit aligned.  The old code did
+     *   *(uint32_t *)(ipAddr->Addr + 12) = *(uint32_t *)Addr;
+     * which is a strict-aliasing violation and an unaligned load that SIGBUSes
+     * on strict-alignment targets (DNS wire data is often unaligned).  We put
+     * the source bytes at an odd offset so a naive uint32_t* read would be
+     * misaligned, then verify the copied value is still exact. */
+    {
+        unsigned char buf[8];
+        unsigned char *src = buf + 1;            /* deliberately odd offset */
+        IpAddr a;
+        int i, ok = 1;
+
+        src[0] = 198; src[1] = 51; src[2] = 100; src[3] = 206;  /* 198.51.100.206 */
+
+        memset(&a, 0xaa, sizeof(a));
+        IpAddr_From4(src, &a);
+
+        if( a.Addr[10] != 0xff || a.Addr[11] != 0xff )
+            ok = 0;
+        for( i = 0; i < 4 && ok; ++i )
+            if( a.Addr[12 + i] != src[i] )
+                ok = 0;
+
+        if( !ok )
+            return fail("IpAddr_From4 misaligned source produced wrong ::ffff address");
+
+        /* Also confirm a normally-aligned source still works (no regression). */
+        {
+            unsigned char aligned[4] = { 10, 0, 0, 1 };
+            IpAddr b;
+            memset(&b, 0, sizeof(b));
+            IpAddr_From4(aligned, &b);
+            if( b.Addr[10] != 0xff || b.Addr[11] != 0xff ||
+                b.Addr[12] != 10 || b.Addr[13] != 0 ||
+                b.Addr[14] != 0 || b.Addr[15] != 1 )
+                return fail("IpAddr_From4 aligned source regressed");
+        }
+    }
+
     printf("IpChunk OK\n");
     return rc;
 }

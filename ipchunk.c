@@ -44,14 +44,22 @@ int IpAddr_IsValid(const IpAddr *ipAddr)
 static void IpAddr_SetPrefix4(unsigned char Addr[16])
 {
     memset(Addr, 0, 10);
-    *(uint16_t *)(Addr + 10) = 0xffff;
+    /* ::ffff prefix.  Byte-wise writes avoid a strict-aliasing-violating
+       uint16_t* store into an unsigned-char buffer. */
+    Addr[10] = 0xff;
+    Addr[11] = 0xff;
 }
 
 void IpAddr_From4(const unsigned char Addr[4], IpAddr *ipAddr)
 {
     ipAddr->Zone = Z4;
     IpAddr_SetPrefix4(ipAddr->Addr);
-    *(uint32_t *)(ipAddr->Addr + 12) = *(uint32_t *)Addr;
+    /* Copy the 4 octets without going through a uint32_t* : IpAddr_From4 is
+       routinely fed DNS wire data (e.g. by IpChunk_Find) whose bytes can sit at
+       an unaligned address.  *(uint32_t *)Addr there is both a strict-aliasing
+       violation and an unaligned load that SIGBUSes on strict-alignment
+       targets.  memcpy is well defined for every alignment. */
+    memcpy(ipAddr->Addr + 12, Addr, 4);
 }
 
 void IpAddr_From6(const unsigned char Addr[16], IpAddr *ipAddr)

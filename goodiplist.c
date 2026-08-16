@@ -138,9 +138,14 @@ static int ThreadJod(const char *Domain, ListInfo *inf)
             goto FINISH;
         }
 
-        memcpy(&t, Fastest, sizeof(struct sockaddr_in));
-        memcpy(Fastest, First, sizeof(struct sockaddr_in));
-        memcpy(First, &t, sizeof(struct sockaddr_in));
+        /* When the fastest IP happens to be the one already at index 0,
+           `Fastest` and `First` alias the same element. Swapping them with
+           memcpy() is undefined behaviour (overlapping source and
+           destination); use memmove() which is defined for overlapping
+           regions, so the self-swap degrades to a no-op safely. */
+        memmove(&t, Fastest, sizeof(struct sockaddr_in));
+        memmove(Fastest, First, sizeof(struct sockaddr_in));
+        memmove(First, &t, sizeof(struct sockaddr_in));
     } else {
         INFO("Checking list `%s' timeout.\n", Domain);
     }

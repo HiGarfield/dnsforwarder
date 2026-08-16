@@ -168,8 +168,11 @@ void Log_Print(const char *Type, const char *format, ...)
     /* We may need the argument list twice (once for the file, once for the
        console). Re-using a va_list after it has been consumed by vfprintf is
        undefined behaviour on most ABIs (x64), so make a copy before the first
-       use and consume the copy separately. */
-    ap_copy = ap;
+       use and consume the copy separately.  va_list may be an array type, so a
+       plain assignment is non-portable (and fails to compile on such
+       toolchains); use va_copy(), which is the standard way to duplicate a
+       va_list. */
+    va_copy(ap_copy, ap);
 
     EFFECTIVE_LOCK_GET(PrintLock);
     if( LogFile != NULL )

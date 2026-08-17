@@ -77,7 +77,19 @@ int IHeader_Fill(IHeader *h,
 
             StrToLower(h->Domain);
             h->HashValue = HASH(h->Domain, 0);
-            h->Type = (DNSRecordType)DNSGetRecordType(DNSJumpHeader(DnsEntity));
+
+            /* Take the record type from the *current* QUESTION record
+             * (i.CurrentPosition), NOT from the first record of the message.
+             * DNSGetRecordType() jumps past the name stored at its argument
+             * and reads the 2-byte type, so passing DNSJumpHeader(DnsEntity)
+             * -- which always points at the first record regardless of which
+             * record the iterator is visiting -- made h->Type reflect the first
+             * record's type for every QUESTION. With QDCOUNT > 1 the type then
+             * mismatched the domain that was just parsed, and downstream type
+             * filters / hosts / cache rules keyed on h->Type operated on the
+             * wrong record type. i.CurrentPosition is the start of the record
+             * the iterator is currently on, so it yields the correct type. */
+            h->Type = (DNSRecordType)DNSGetRecordType(i.CurrentPosition);
             break;
 
         case DNS_RECORD_PURPOSE_ADDITIONAL:

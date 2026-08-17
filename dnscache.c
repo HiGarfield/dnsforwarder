@@ -346,7 +346,13 @@ int DNSCache_Init(ConfigFileInfo *ConfigInfo)
         }
 
         MapStart = (char *)MPA_FILE(CacheMappingHandle, CacheSize);
-        if(MapStart == INVALID_MAPPING_FILE)
+        /* On Linux mmap() fails with MAP_FAILED == (void *)-1, which equals
+         * INVALID_MAPPING_FILE. On Windows MapViewOfFile() fails with NULL,
+         * which does NOT equal INVALID_MAPPING_FILE, so a NULL return would
+         * have slipped past the original check and been treated as a valid
+         * mapping -- every later access then dereferences NULL/garbage. Test
+         * both sentinel values to stay correct on every supported platform. */
+        if(MapStart == INVALID_MAPPING_FILE || MapStart == NULL)
         {
             int ErrorNum = GET_LAST_ERROR();
             char ErrorMessage[320];

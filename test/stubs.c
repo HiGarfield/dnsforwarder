@@ -31,3 +31,10 @@ void Log_Print(const char *Type, const char *format, ...)
     (void)Type;
     (void)format;
 }
+
+/* logs.c: DEBUG() guards its output with Log_DebugOn.  Keep debug logging off
+   so the tested code takes exactly the same path as a default build. */
+BOOL Log_DebugOn(void)
+{
+    return FALSE;
+}

@@ -85,6 +85,146 @@ int CacheHT_ReInit(CacheHT *h, char *BaseAddr, int CacheSize)
     return 0;
 }
 
+/* Validate a CacheHT that was read verbatim out of the on-disk cache file.
+   Every field below -- the two Array headers, Free2DList, and each Cht_Node --
+   comes straight from that file, which is a plain file that a crash can
+   truncate, that can be corrupted on disk, or that can simply be edited.
+
+   The cache *read* paths already range-check Node->Offset before dereferencing
+   it, but the *write* paths do not:
+
+       dnscache.c, DNSCacheTTLCountdown_Task:
+           *(unsigned char *)(MapStart + Node->Offset) = 0xFD;
+       dnscache.c, DNSCache_GetAvailableChunk:
+           memset(MapStart + Node->Offset + Length, 0xFE, RoundedLength - Length);
+
+   With an out-of-range Offset those two statements write outside the mapping.
+   Subscript fields are just as dangerous: CacheHT_RemoveFromSlot indexes
+   h->Slots with Node->Slot, and the slot chains are walked through Node->Next,
+   so a bogus subscript reads or writes arbitrary memory near the mapping.
+
+   `DataOffsetMin` is the first byte the records may occupy (the size of the
+   caller's file header) and `CacheSize` is the size of the whole mapping.
+   Returns TRUE only when the structure is entirely self-consistent.
+
+   Note that h->Slots.Data / h->NodeChunk.Data still hold the raw pointer values
+   written by the previous process and must not be dereferenced, so the bases
+   are recomputed here exactly the way CacheHT_ReInit does. */
+BOOL CacheHT_IsStructureSane(const CacheHT *h,
+                             const char *BaseAddr,
+                             int CacheSize,
+                             int DataOffsetMin,
+                             int DataEnd
+                             )
+{
+    const Array *NodeChunk = &(h->NodeChunk);
+    const Array *Slots = &(h->Slots);
+    const char *SlotBase;
+    const char *NodeBase;
+    size_t SlotBytes;
+    size_t NodeBytes;
+    int loop;
+
+    if( BaseAddr == NULL || CacheSize <= 0 || DataOffsetMin < 0 )
+    {
+        return FALSE;
+    }
+
+    /* The record high-water mark must lie between the header and the map end. */
+    if( DataEnd < DataOffsetMin || DataEnd > CacheSize )
+    {
+        return FALSE;
+    }
+
+    /* Slots is a grow-up array of Cht_Slot pinned at the top of the mapping,
+       fully allocated by CacheHT_Init. */
+    if( Slots->DataLength != (int)sizeof(Cht_Slot) ||
+        Slots->Used <= 0 ||
+        Slots->Allocated != Slots->Used )
+    {
+        return FALSE;
+    }
+
+    /* NodeChunk grows downward from just below the slot table, so it always
+       carries the Allocated == -1 sentinel. */
+    if( NodeChunk->DataLength != (int)sizeof(Cht_Node) ||
+        NodeChunk->Allocated >= 0 ||
+        NodeChunk->Used < 0 )
+    {
+        return FALSE;
+    }
+
+    /* The slot table, every node, and the record region must all fit in the
+       mapping without overlapping each other. All arithmetic is done in size_t
+       with subtraction only, so nothing can wrap. */
+    SlotBytes = sizeof(Cht_Slot) * (size_t)Slots->Used;
+    NodeBytes = sizeof(Cht_Node) * (size_t)NodeChunk->Used;
+
+    if( SlotBytes > (size_t)CacheSize ||
+        NodeBytes > (size_t)CacheSize - SlotBytes ||
+        (size_t)DataEnd > (size_t)CacheSize - SlotBytes - NodeBytes )
+    {
+        return FALSE;
+    }
+
+    if( h->Free2DList < -1 || h->Free2DList >= NodeChunk->Used )
+    {
+        return FALSE;
+    }
+
+    SlotBase = (const char *)((uintptr_t)(BaseAddr + CacheSize - SlotBytes)
+                              & ~(uintptr_t)7);
+    NodeBase = SlotBase - sizeof(Cht_Node);
+
+    for( loop = 0; loop < NodeChunk->Used; ++loop )
+    {
+        const Cht_Node *Node =
+            (const Cht_Node *)(NodeBase - sizeof(Cht_Node) * (size_t)loop);
+
+        /* The record must start inside the data region and must not run past
+           the end of the mapping. */
+        if( Node->Offset < DataOffsetMin || Node->Offset > CacheSize )
+        {
+            return FALSE;
+        }
+
+        if( (uint32_t)Node->Length > (uint32_t)CacheSize ||
+            (uint32_t)Node->Offset > (uint32_t)CacheSize - Node->Length )
+        {
+            return FALSE;
+        }
+
+        if( Node->UsedLength > Node->Length )
+        {
+            return FALSE;
+        }
+
+        /* -1 terminates a chain; anything else must index a real element. */
+        if( Node->Slot < -1 || Node->Slot >= Slots->Used )
+        {
+            return FALSE;
+        }
+
+        if( Node->Next < -1 || Node->Next >= NodeChunk->Used )
+        {
+            return FALSE;
+        }
+    }
+
+    for( loop = 0; loop < Slots->Used; ++loop )
+    {
+        const Cht_Slot *Slot =
+            (const Cht_Slot *)(SlotBase + sizeof(Cht_Slot) * (size_t)loop);
+
+        if( Slot->Next < -1 || Slot->Next >= NodeChunk->Used )
+        {
+            return FALSE;
+        }
+    }
+
+    return TRUE;
+}
+
 static int CacheHT_CreateNewNode(CacheHT *h, uint32_t ChunkSize, Cht_Node **Out, void *Boundary)
 {
     int         NewNode_i;

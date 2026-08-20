@@ -149,6 +149,29 @@ static BOOL IsReloadable(void)
         return FALSE;
     }
 
+    if( Header->CacheCount < 0 )
+    {
+        ERRORMSG("The existing cache is corrupted and cannot be reloaded.\n");
+        return FALSE;
+    }
+
+    /* Everything below the header -- the hash table, the slot chains and every
+       node's Offset -- comes verbatim from the cache file, yet the cache write
+       paths trust it: neither DNSCacheTTLCountdown_Task nor
+       DNSCache_GetAvailableChunk bounds-check Node->Offset before writing
+       through it. Refuse to reload a structurally inconsistent image. */
+    if( !CacheHT_IsStructureSane(&(Header->ht),
+                                 MapStart,
+                                 CacheSize,
+                                 (int)sizeof(struct _Header),
+                                 Header->End
+                                 )
+      )
+    {
+        ERRORMSG("The existing cache is corrupted and cannot be reloaded.\n");
+        return FALSE;
+    }
+
     return TRUE;
 }
 

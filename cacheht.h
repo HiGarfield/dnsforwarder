@@ -34,6 +34,16 @@ int CacheHT_Init(CacheHT *h, char *BaseAddr, int CacheSize);
 
 int CacheHT_ReInit(CacheHT *h, char *BaseAddr, int CacheSize);
 
+/* Validate a CacheHT loaded from an untrusted (on-disk) cache image before any
+   code indexes it. `DataOffsetMin' is the first byte records may occupy and
+   `DataEnd' is the record high-water mark stored alongside the table. */
+BOOL CacheHT_IsStructureSane(const CacheHT *h,
+                             const char *BaseAddr,
+                             int CacheSize,
+                             int DataOffsetMin,
+                             int DataEnd
+                             );
+
 int32_t CacheHT_FindUnusedNode(CacheHT      *h,
                                uint32_t    ChunkSize,
                                Cht_Node    **Out,

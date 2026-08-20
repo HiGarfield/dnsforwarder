@@ -556,6 +556,16 @@ static int DnsGenerator_RawData(DnsGenerator *g,
         return 2;
     }
 
+    /* Validate the destination buffer BEFORE writing the record header (which
+       includes the RDLENGTH field). All sibling writers (CopyA/CopyAAAA/
+       CopyCName) check the remaining space up front; this one previously wrote
+       the header and RDLENGTH first and only then discovered the overflow,
+       leaving an internally inconsistent record in the answer. */
+    if( LEFT_LENGTH(g) < DataLength )
+    {
+        return -6;
+    }
+
     if( DnsGenerator_NamePart(g, Name) != 0 )
     {
         return -1;
@@ -579,14 +589,6 @@ static int DnsGenerator_RawData(DnsGenerator *g,
     if( DnsGenerator_16Uint(g, DataLength) != 0 )
     {
         return -5;
-    }
-
-    /* All sibling writers (CopyA/CopyAAAA/CopyCName/NamePart) check the
-       remaining buffer first; this one was missing the guard and could
-       write past the end of g->Buffer. */
-    if( LEFT_LENGTH(g) < DataLength )
-    {
-        return -6;
     }
 
     memcpy(g->Itr, Data, DataLength);
@@ -655,6 +657,30 @@ static int DnsGenerator_CopyCName(DnsGenerator *g, DnsSimpleParserIterator *i)
         return 2;
     }
 
+    /* A CNAME must carry at least one byte of RDATA (the length octet of its
+       target name). A zero-RDLENGTH CNAME makes i->RowData(i) point at the next
+       record, and DNSCopyLable would then read that record's owner name as the
+       CNAME target and emit a plausible-but-wrong answer. Reject a zero (or
+       negative) RDATA length up front, before writing anything. */
+    if( i->DataLength < 1 )
+    {
+        return -7;
+    }
+
+    /* Validate the target name length and the destination buffer before writing
+       the record header, so a malformed CNAME is rejected without leaving a
+       partial record in the answer. */
+    CNameLabelLength = DNSCopyLable(i->Parser->RawDns,
+                                    i->Parser->RawDnsLength,
+                                    NULL,
+                                    i->RowData(i)
+                                    );
+
+    if( CNameLabelLength < 0 )
+    {
+        return -7;
+    }
+
     if( DnsGenerator_CopyNamePart(g, i) != 0 )
     {
         return -1;
@@ -673,17 +699,6 @@ static int DnsGenerator_CopyCName(DnsGenerator *g, DnsSimpleParserIterator *i)
     if( DnsGenerator_32Uint(g, i->GetTTL(i)) != 0 )
     {
         return -4;
-    }
-
-    CNameLabelLength = DNSCopyLable(i->Parser->RawDns,
-                                    i->Parser->RawDnsLength,
-                                    NULL,
-                                    i->RowData(i)
-                                    );
-
-    if( CNameLabelLength < 0 )
-    {
-        return -7;
     }
 
     if( DnsGenerator_16Uint(g, CNameLabelLength) != 0 )
@@ -726,6 +741,22 @@ static int DnsGenerator_CopyA(DnsGenerator *g, DnsSimpleParserIterator *i)
         return 2;
     }
 
+    /* Validate the RDATA against both the destination buffer and the source
+       record BEFORE touching g->Itr.  A short A record (RDLENGTH < 4) would
+       make the memcpy below read past the end of the received packet, and a
+       too-small scratch buffer would overflow it.  Checking only after the
+       record header (incl. RDLENGTH) has already been written leaves an
+       internally inconsistent record in the answer, so reject up front. */
+    if( i->DataLength < 4 )
+    {
+        return -7;
+    }
+
+    if( LEFT_LENGTH(g) < 4 )
+    {
+        return -6;
+    }
+
     if( DnsGenerator_CopyNamePart(g, i) != 0 )
     {
         return -1;
@@ -749,20 +780,6 @@ static int DnsGenerator_CopyA(DnsGenerator *g, DnsSimpleParserIterator *i)
     if( DnsGenerator_16Uint(g, 4) != 0 )
     {
         return -5;
-    }
-
-    if( LEFT_LENGTH(g) < 4 )
-    {
-        return -6;
-    }
-
-    /* The source is network-supplied RDATA whose length is attacker controlled
-       via the record's RDLENGTH.  A short A record (RDLENGTH < 4) would make
-       the memcpy below read past the end of the received packet.  Only copy as
-       many bytes as the record actually carries. */
-    if( i->DataLength < 4 )
-    {
-        return -7;
     }
 
     memcpy(g->Itr, i->RowData(i), 4);
@@ -793,6 +810,19 @@ static int DnsGenerator_CopyAAAA(DnsGenerator *g, DnsSimpleParserIterator *i)
         return 2;
     }
 
+    /* Validate the RDATA against both the destination buffer and the source
+       record BEFORE touching g->Itr (see DnsGenerator_CopyA for the rationale,
+       which applies identically here for 16-byte AAAA records). */
+    if( i->DataLength < 16 )
+    {
+        return -7;
+    }
+
+    if( LEFT_LENGTH(g) < 16 )
+    {
+        return -6;
+    }
+
     if( DnsGenerator_CopyNamePart(g, i) != 0 )
     {
         return -1;
@@ -816,20 +846,6 @@ static int DnsGenerator_CopyAAAA(DnsGenerator *g, DnsSimpleParserIterator *i)
     if( DnsGenerator_16Uint(g, 16) != 0 )
     {
         return -5;
-    }
-
-    if( LEFT_LENGTH(g) < 16 )
-    {
-        return -6;
-    }
-
-    /* The source is network-supplied RDATA whose length is attacker controlled
-       via the record's RDLENGTH.  A short AAAA record (RDLENGTH < 16) would make
-       the memcpy below read past the end of the received packet.  Only copy as
-       many bytes as the record actually carries. */
-    if( i->DataLength < 16 )
-    {
-        return -7;
     }
 
     memcpy(g->Itr, i->RowData(i), 16);

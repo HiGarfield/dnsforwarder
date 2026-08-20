@@ -79,7 +79,16 @@ int IpAddr_Parse(const char *s, IpAddr *ipAddr)
         case '.':
             ipAddr->Zone = Z4;
             IpAddr_SetPrefix4(ipAddr->Addr);
-            return IPv4AddressToNum(s, ipAddr->Addr + 12) != 4;
+            if( IPv4AddressToNum(s, ipAddr->Addr + 12) != 4 )
+            {
+                /* Malformed IPv4 literal: leave the IpAddr in the same
+                   pristine state as a non-match so IpAddr_IsValid() cannot
+                   report this half-written struct as a valid address. */
+                ipAddr->Zone = Z0;
+                memset(ipAddr->Addr, 0, 16);
+                return -1;
+            }
+            return 0;
         case ':':
             p = strchr(p, '%');
             if( p == NULL )
@@ -88,7 +97,13 @@ int IpAddr_Parse(const char *s, IpAddr *ipAddr)
             } else {
                 ipAddr->Zone = p + 1;
             }
-            return IPv6AddressToNum(s, ipAddr->Addr) != 16;
+            if( IPv6AddressToNum(s, ipAddr->Addr) != 16 )
+            {
+                ipAddr->Zone = Z0;
+                memset(ipAddr->Addr, 0, 16);
+                return -1;
+            }
+            return 0;
         case '%':
             break;
         }

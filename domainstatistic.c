@@ -376,6 +376,21 @@ int DomainStatistic_Add(IHeader *h, StatisticType Type)
         return 0;
     }
 
+    /* StatisticLock and MainChunk are only created by DomainStatistic_Init()
+       when the `DomainStatistic' option is enabled and the init succeeds
+       (StatisticInited is set to TRUE only after both exist).  With the
+       option off -- the common case -- the lock is an all-zero BSS object
+       that was never pthread_spin_init()'ed, and locking it never acquires
+       (verified on glibc 2.39: pthread_spin_lock on a zero-initialised
+       spinlock spins forever).  UdpM_Works() / TcpM_Works() / SweepWorks()
+       call this for every answered query, so a daemon without DomainStatistic
+       would hang its worker threads on the first reply.  Guard the whole
+       fast path, exactly like DomainStatistic_Cleanup() already does. */
+    if( !StatisticInited )
+    {
+        return 0;
+    }
+
     /* Re-check MainFile/ToExit under the lock: DomainStatistic_Cleanup()
        clears them while holding the same lock, so without this a request
        thread that waited for the lock during cleanup could touch a freed

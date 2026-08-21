@@ -182,8 +182,12 @@ BOOL CacheHT_IsStructureSane(const CacheHT *h,
             (const Cht_Node *)(NodeBase - sizeof(Cht_Node) * (size_t)loop);
 
         /* The record must start inside the data region and must not run past
-           the end of the mapping. */
-        if( Node->Offset < DataOffsetMin || Node->Offset > CacheSize )
+           the end of the mapping.  The upper bound is exclusive: the write
+           paths (DNSCacheTTLCountdown_Task writing 0xFD at MapStart+Offset,
+           DNSCache_GetAvailableChunk memsetting at MapStart+Offset+Length)
+           write at Offset and Offset+Length, so Offset == CacheSize would
+           write one byte past the mapping. */
+        if( Node->Offset < DataOffsetMin || Node->Offset >= CacheSize )
         {
             return FALSE;
         }

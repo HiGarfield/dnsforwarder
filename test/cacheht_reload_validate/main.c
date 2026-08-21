@@ -186,6 +186,27 @@ int main(void)
                Validate(&c, Map, End) == TRUE);
     }
 
+    /* ---- 2b. Node->Offset exactly at the end of the mapping -----------
+       The old check `Offset > CacheSize` accepted Offset == CacheSize, and
+       with Length == 0 the Offset+Length bound check cannot catch it either.
+       The TTL write path then executed `*(unsigned char *)(MapStart + Offset)
+       = 0xFD`, writing one byte past the mapping. Length/UsedLength are zeroed
+       so this case isolates the Offset upper bound exclusively. */
+    printf("Corrupted Node->Offset (exactly at the end of the mapping)\n");
+    {
+        CacheHT c;
+        Cht_Node *n;
+
+        BuildValidImage(Map, &c, &End, 24);
+        n = NodeAt(Map, CACHE_SIZE, c.Slots.Used, 8);
+
+        n->Offset = CACHE_SIZE;
+        n->Length = 0;
+        n->UsedLength = 0;
+        expect("an Offset exactly at the end of the mapping is rejected",
+               Validate(&c, Map, End) == FALSE);
+    }
+
     /* ---- 3. Negative Node->Offset ------------------------------------
        Prevents an out-of-bounds write BELOW the mapping. */
     printf("Corrupted Node->Offset (negative)\n");

@@ -213,7 +213,15 @@ static int DnsGenerator_IPv4(DnsGenerator *g, const char *ip)
         return -1;
     }
 
-    IPv4AddressToNum(ip, g->Itr);
+    /* IPv4AddressToNum() validates the literal (exactly four 0-255
+       components).  Ignoring its result wrote the bytes unconditionally and
+       reported success even for a malformed address, so a bogus value could
+       reach the wire as an A record.  Reject it; the caller (DnsGenerator_A)
+       aborts the record on a non-zero return. */
+    if( IPv4AddressToNum(ip, g->Itr) != 4 )
+    {
+        return -2;
+    }
 
     g->Itr += 4;
 
@@ -227,7 +235,12 @@ static int DnsGenerator_IPv6(DnsGenerator *g, const char *ip)
         return -1;
     }
 
-    IPv6AddressToNum(ip, g->Itr);
+    /* Same defensive check as the IPv4 path: an unparseable literal must
+       not be written as an all-zero AAAA record. */
+    if( IPv6AddressToNum(ip, g->Itr) != 16 )
+    {
+        return -2;
+    }
 
     g->Itr += 16;
 

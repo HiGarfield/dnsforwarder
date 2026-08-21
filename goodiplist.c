@@ -354,29 +354,19 @@ static int AddTask(void)
 
 static void GoodIpList_Cleanup(void)
 {
-    if(GoodIpList != NULL)
-    {
-        /* Each ListInfo's List.Data is a heap buffer (see InitListsAndTimes)
-           that StringChunk_Free does not traverse and free; release them
-           first so they are not leaked at process exit. */
-        ListInfo *m;
-        const char *Domain;
-        int32_t Start = 0;
-
-        Domain = StringChunk_Enum_NoWildCard(GoodIpList, &Start, (void **)&m);
-        while( Domain != NULL )
-        {
-            if( m != NULL && m->List.Data != NULL )
-            {
-                SafeFree(m->List.Data);
-            }
-            Domain = StringChunk_Enum_NoWildCard(GoodIpList, &Start, (void **)&m);
-        }
-
-        RWLock_Destroy(ListLock);
-        StringChunk_Free(GoodIpList, TRUE);
-        SafeFree(GoodIpList);
-    }
+    /* Deliberately a no-op.  The list-measurement task (ThreadJod) runs on
+       the TimedTask worker thread, which atexit LIFO order does NOT stop
+       until TimedTask_Cleanup(): TimedTask_Init() registers that handler
+       early in main(), so it executes AFTER every module atexit handler
+       including this one.  ThreadJod reads inf->List.Data and the Domain
+       strings while holding ListLock, so freeing the per-list heap buffers,
+       destroying ListLock, or freeing the GoodIpList chunk here would race a
+       still-running ThreadJod wake-up (use-after-free / locking a destroyed
+       rwlock) -- the same shutdown race the old code had, and the exact
+       hazard dnscache.c (DNSCacheTTLCountdown_Task) and domainstatistic.c
+       (DomainStatistic_Works) avoid by also leaving everything in place.
+       The OS reclaims the buffers, the rwlock and the chunk when the process
+       exits. */
 }
 
 int GoodIpList_Init(ConfigFileInfo *ConfigInfo)

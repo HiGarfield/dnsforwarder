@@ -3,7 +3,7 @@
 
 #include "common.h"
 
-typedef int (*TaskFunc)(void *Arg1, void *Arg2);
+typedef void (*TaskFunc)(void *Arg1, void *Arg2);
 
 int TimedTask_Init(void);
 

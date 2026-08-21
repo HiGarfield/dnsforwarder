@@ -333,7 +333,7 @@ int DynamicHosts_Init(ConfigFileInfo *ConfigInfo)
         TimedTask_Add(FALSE,
                       TRUE,
                       0,
-                      (TaskFunc)GetHostsFromInternet_Thread,
+                      GetHostsFromInternet_Thread,
                       NULL,
                       NULL,
                       TRUE);
@@ -341,7 +341,7 @@ int DynamicHosts_Init(ConfigFileInfo *ConfigInfo)
         TimedTask_Add(TRUE,
                       TRUE,
                       UpdateInterval * 1000,
-                      (TaskFunc)GetHostsFromInternet_Thread,
+                      GetHostsFromInternet_Thread,
                       NULL,
                       NULL,
                       TRUE);

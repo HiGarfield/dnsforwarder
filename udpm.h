@@ -32,7 +32,7 @@ struct _UdpM {
     int CountOfTimeout;
 
     /* public */
-    int (*Send)(UdpM *m,
+    int (*Send)(void *m,
                 const char *Buffer,
                 int BufferLength
                 );

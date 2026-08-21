@@ -16,9 +16,9 @@ static RWLock       DisabledDomainLock = NULL_RWLOCK;
 
 static ConfigFileInfo *CurrConfigInfo = NULL;
 
-static int TypeCompare(const int *_1, const int *_2)
+static int TypeCompare(const void *_1, const void *_2)
 {
-    return *_1 - *_2;
+    return *(const int *)_1 - *(const int *)_2;
 }
 
 static int InitBst(Bst **t, int (*CompareFunc)(const void *, const void *))

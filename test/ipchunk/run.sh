@@ -21,5 +21,5 @@ $Root/utils.c
 $Root/addresslist.c
 "
 
-${CC:-cc} -I"$Root" -g -Wall -o "$Out" $Sources -lpthread -lm
+${CC:-cc} -I"$Root" -g -Wall $CFLAGS -o "$Out" $Sources -lpthread -lm
 "$Out"

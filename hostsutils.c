@@ -7,14 +7,15 @@
 
 static int HostsUtils_GetCName_Callback(int Number,
                                         HostsRecordType Type,
-                                        const char *Data,
-                                        char *Buffer
+                                        const void *Data,
+                                        void *Arg
                                         )
 {
     /* `Buffer` is a fixed-size DOMAIN_NAME_LENGTH_MAX + 1 byte stack buffer at
        every call site. Bounded copy with an explicit NUL terminator so a
        longer-than-expected CNAME value cannot overflow it. */
-    strncpy(Buffer, Data, DOMAIN_NAME_LENGTH_MAX);
+    char *Buffer = (char *)Arg;
+    strncpy(Buffer, (const char *)Data, DOMAIN_NAME_LENGTH_MAX);
     Buffer[DOMAIN_NAME_LENGTH_MAX] = '\0';
     return 0;
 }
@@ -27,7 +28,7 @@ int HostsUtils_GetCName(const char *Domain,
     return Container->Find(Container,
                            Domain,
                            HOSTS_TYPE_CNAME,
-                           (HostsFindFunc)HostsUtils_GetCName_Callback,
+                           HostsUtils_GetCName_Callback,
                            Buffer
                            )
             == NULL;
@@ -50,9 +51,11 @@ BOOL HostsUtils_TypeExisting(HostsContainer *Container,
 static int HostsUtils_Generate(int              Number,
                                HostsRecordType  Type,
                                const void       *Data,
-                               DnsGenerator     *g /* Inited */
+                               void             *Arg
                                )
 {
+    DnsGenerator *g = (DnsGenerator *)Arg;
+
     switch( Type )
     {
     case HOSTS_TYPE_CNAME:
@@ -237,7 +240,7 @@ HostsUtilsTryResult HostsUtils_Try(MsgContext *MsgCtx,
         if( Container->Find(Container,
                             Header->Domain,
                             Type,
-                            (HostsFindFunc)HostsUtils_Generate,
+                            HostsUtils_Generate,
                             &g
                             )
             == NULL )

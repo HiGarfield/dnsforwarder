@@ -12,7 +12,7 @@
 #include "rwlock.h"
 
 typedef int (*SendFunc)(void *Module,
-                        IHeader *h, /* Entity followed */
+                        const char *Buffer,
                         int BufferLength
                         );
 
@@ -142,7 +142,7 @@ static int Udp_Init_Core(ModuleMap *ModuleMap,
         return -128;
     }
 
-    NewM->Send = (SendFunc)(NewM->ModuleUnion.Udp.Send);
+    NewM->Send = NewM->ModuleUnion.Udp.Send;
 
     if( MappingAModule(ModuleMap, NewM, DomainList) != 0 )
     {
@@ -239,7 +239,7 @@ static int Tcp_Init_Core(ModuleMap *ModuleMap,
         return -180;
     }
 
-    NewM->Send = (SendFunc)(NewM->ModuleUnion.Tcp.Send);
+    NewM->Send = NewM->ModuleUnion.Tcp.Send;
 
     if( MappingAModule(ModuleMap, NewM, DomainList) != 0 )
     {
@@ -977,7 +977,7 @@ int MMgr_Send(const char *Buffer, int BufferLength)
             MsgContext_ReleaseSocket(MsgCtx);
             ret = -190;
         } else {
-            ret = TheModule->Send(&(TheModule->ModuleUnion), h, BufferLength);
+            ret = TheModule->Send(&(TheModule->ModuleUnion), Buffer, BufferLength);
         }
     }
 

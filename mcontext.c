@@ -3,11 +3,16 @@
 #include "mcontext.h"
 #include "common.h"
 
+/* Bst_Enum_Callback exact signature: the old (Bst_Enum_Callback) cast hid a
+   function-pointer type mismatch that -fsanitize=function flags as UB. */
 static int ModuleContext_Sweep_Collect(Bst *t,
-                                       const MsgContext *Context,
-                                       Array *Pending
+                                       const void *Data,
+                                       void *Arg
                                        )
 {
+    const MsgContext *Context = (const MsgContext *)Data;
+    Array *Pending = (Array *)Arg;
+
     if( time(NULL) - ((IHeader *)Context)->Timestamp > 2 )
     {
         Array_PushBack(Pending, &Context, NULL);
@@ -34,7 +39,7 @@ static void ModuleContext_Sweep(ModuleContext *c, SweepCallback cb, void *Arg)
     }
 
     c->d.Enum(&(c->d),
-              (Bst_Enum_Callback)ModuleContext_Sweep_Collect,
+              ModuleContext_Sweep_Collect,
               &Pending
               );
 

@@ -100,15 +100,16 @@ static struct sockaddr_in *CheckAList(struct sockaddr_in *Ips, int Count)
     return ret;
 }
 
-static int ThreadJod(const char *Domain, ListInfo *inf)
+static void ThreadJod(void *DomainPtr, void *InfPtr)
 {
+    const char *Domain = (const char *)DomainPtr;
+    ListInfo *inf = (ListInfo *)InfPtr;
     struct sockaddr_in *Fastest;
     PTimer  tm;
-    int     Ret = 0;
 
     if( inf == NULL )
     {
-        return -159;
+        return;
     }
 
     /* Serialize with GoodIpList_Get() which may read inf->List concurrently
@@ -134,7 +135,6 @@ static int ThreadJod(const char *Domain, ListInfo *inf)
         First = Array_GetBySubscript(&(inf->List), 0);
         if( First == NULL )
         {
-            Ret = -178;
             goto FINISH;
         }
 
@@ -150,11 +150,8 @@ static int ThreadJod(const char *Domain, ListInfo *inf)
         INFO("Checking list `%s' timeout.\n", Domain);
     }
 
-    Ret = 0;
-
 FINISH:
     RWLock_UnWLock(ListLock);
-    return Ret;
 }
 
 /* GoodIPList list1 1000 */
@@ -342,7 +339,7 @@ static int AddTask(void)
             TimedTask_Add(TRUE,
                           FALSE,
                           m->Interval,
-                          (TaskFunc)ThreadJod,
+                          ThreadJod,
                           (void *)Domain,
                           (void *)m,
                           TRUE

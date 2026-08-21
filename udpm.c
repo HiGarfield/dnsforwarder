@@ -8,17 +8,18 @@
 #include "domainstatistic.h"
 #include "timedtask.h"
 
-static void SweepWorks(MsgContext *MsgCtx, int Number, UdpM *Module)
+static void SweepWorks(const MsgContext *MsgCtx, int Number, void *Module)
 {
+    UdpM *m = (UdpM *)Module;
     IHeader *h = (IHeader *)MsgCtx;
 
     ShowTimeOutMessage(h, 'U');
     DomainStatistic_Add(h, STATISTIC_TYPE_REFUSED);
-    ++(Module->CountOfTimeout);
+    ++(m->CountOfTimeout);
 
     if( Number == 1 )
     {
-        AddressList_Advance(&(Module->AddrList));
+        AddressList_Advance(&(m->AddrList));
     }
 }
 
@@ -53,7 +54,7 @@ UdpM_Sweep_Thread(UdpM *m)
             break;
         }
 
-        SweepTask(m, (SweepCallback)SweepWorks);
+        SweepTask(m, SweepWorks);
         SLEEP(10000);
     }
 
@@ -354,11 +355,12 @@ UdpM_Works(UdpM *m)
     UdpM_Cleanup(m);
 }
 
-static int UdpM_Send(UdpM *m,
+static int UdpM_Send(void *Module,
                      const char *Buffer,
                      int BufferLength
                      )
 {
+    UdpM *m = (UdpM *)Module;
     int ret = 0;
     const IHeader *h = (IHeader *)Buffer;
     MsgContext *MsgCtxStored;

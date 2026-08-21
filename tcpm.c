@@ -41,16 +41,17 @@ typedef struct _TcpContext
     MsgContext  *MsgCtx;
 } TcpContext;
 
-static void SweepWorks(MsgContext *MsgCtx, int Number, TcpM *Module)
+static void SweepWorks(const MsgContext *MsgCtx, int Number, void *Module)
 {
+    TcpM *m = (TcpM *)Module;
     IHeader *h = (IHeader *)MsgCtx;
 
     ShowTimeOutMessage(h, 'T');
     DomainStatistic_Add(h, STATISTIC_TYPE_REFUSED);
 
-    if( Number == 1 && Module->SocksProxies == NULL )
+    if( Number == 1 && m->SocksProxies == NULL )
     {
-        AddressList_Advance(&(Module->ServiceList));
+        AddressList_Advance(&(m->ServiceList));
     }
 }
 
@@ -603,11 +604,13 @@ static int TcpM_Send_Actual(TcpM *m, MsgContext *MsgCtx, int SingleServerIndex)
     return n;
 }
 
-PUBFUNC int TcpM_Send(TcpM *m,
+PUBFUNC int TcpM_Send(void *Module,
                       const char *Buffer,
                       int BufferLength
                       )
 {
+    TcpM *m = (TcpM *)Module;
+
     /* This is the ModuleInterface.Send entry invoked by MMgr_Send when a query
        is routed to a TCP upstream (e.g. a Server group configured over TCP, or
        UDP-to-TCP fallback).  The previous implementation did a sendto() to
@@ -771,7 +774,7 @@ TcpM_Works(TcpM *m)
             /* Sweep modifies the per-module context BST, which is also touched
                by TcpM_Send() (frontend thread) under m->Lock. Serialize it. */
             EFFECTIVE_LOCK_GET(m->Lock);
-            m->Context.Sweep(&(m->Context), (SweepCallback)SweepWorks, m);
+            m->Context.Sweep(&(m->Context), SweepWorks, m);
             EFFECTIVE_LOCK_RELEASE(m->Lock);
             NumberOfCumulated = 0;
             continue;
@@ -785,7 +788,7 @@ TcpM_Works(TcpM *m)
                 /* Sweep modifies the per-module context BST, which is also
                    touched by TcpM_Send() (frontend thread) under m->Lock. */
                 EFFECTIVE_LOCK_GET(m->Lock);
-                m->Context.Sweep(&(m->Context), (SweepCallback)SweepWorks, m);
+                m->Context.Sweep(&(m->Context), SweepWorks, m);
                 EFFECTIVE_LOCK_RELEASE(m->Lock);
                 NumberOfCumulated = 0;
             }

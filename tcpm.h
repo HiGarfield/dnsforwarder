@@ -42,7 +42,7 @@ struct _TcpM {
     BOOL            Parallel;
 
     /* public */
-    int (*Send)(TcpM *m,
+    int (*Send)(void *m,
                 const char *Buffer,
                 int BufferLength
                 );

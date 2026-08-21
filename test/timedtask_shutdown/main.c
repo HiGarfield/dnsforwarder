@@ -23,12 +23,11 @@
 
 static volatile int Counter = 0;
 
-static int TestTask(void *Unused1, void *Unused2)
+static void TestTask(void *Unused1, void *Unused2)
 {
     (void)Unused1;
     (void)Unused2;
     ++Counter;
-    return 0;
 }
 
 int main(void)

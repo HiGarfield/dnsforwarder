@@ -107,7 +107,7 @@ EXIT:
     return -1;
 }
 
-static int DomainStatistic_Works(void *Unused, void *Unused2)
+static void DomainStatistic_Works(void *Unused, void *Unused2)
 {
     const char *Str;
     int32_t Enum_Start;
@@ -130,7 +130,7 @@ static int DomainStatistic_Works(void *Unused, void *Unused2)
     if( MainFile == NULL || ToExit )
     {
         EFFECTIVE_LOCK_RELEASE(StatisticLock);
-        return 0;
+        return;
     }
 
     /* Use fseek instead of rewind: rewind does not report failure, so the
@@ -140,7 +140,7 @@ static int DomainStatistic_Works(void *Unused, void *Unused2)
     if( fseek(MainFile, 0L, SEEK_SET) != 0 )
     {
         EFFECTIVE_LOCK_RELEASE(StatisticLock);
-        return -1;
+        return;
     }
 
     memset(&Sum, 0, sizeof(DomainInfo));
@@ -228,7 +228,7 @@ static int DomainStatistic_Works(void *Unused, void *Unused2)
 
     EFFECTIVE_LOCK_RELEASE(StatisticLock);
 
-    return 0;
+    return;
 }
 
 static void DomainStatistic_Cleanup(void)

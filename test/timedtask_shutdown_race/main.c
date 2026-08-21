@@ -55,13 +55,12 @@ static int Failures = 0;
     } \
 } while(0)
 
-static int NeverRun(void *Unused1, void *Unused2)
+static void NeverRun(void *Unused1, void *Unused2)
 {
     (void)Unused1;
     (void)Unused2;
     printf("FAIL: a task scheduled after shutdown actually ran\n");
     ++Failures;
-    return 0;
 }
 
 int main(void)

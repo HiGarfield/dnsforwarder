@@ -414,7 +414,7 @@ int DNSCache_Init(ConfigFileInfo *ConfigInfo)
         TimedTask_Add(TRUE,
                       FALSE,
                       59000,
-                      (TaskFunc)DNSCacheTTLCountdown_Task,
+                      DNSCacheTTLCountdown_Task,
                       NULL,
                       NULL,
                       TRUE

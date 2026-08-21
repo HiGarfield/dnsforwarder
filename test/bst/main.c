@@ -4,9 +4,9 @@
 #include <time.h>
 #include <limits.h>
 
-int f(const int *o, const int *t)
+int f(const void *o, const void *t)
 {
-    return *o - *t;
+    return *(const int *)o - *(const int *)t;
 }
 
 int print(Bst *t, const void *Data, void *Arg)
@@ -74,7 +74,7 @@ int main(void)
 
     srand(time(NULL));
 
-    Bst_Init(&t, sizeof(int), (CompareFunc)f);
+    Bst_Init(&t, sizeof(int), f);
 
     printf("==>>> Delete a node with no child\n");
 

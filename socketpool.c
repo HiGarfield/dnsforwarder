@@ -63,11 +63,14 @@ typedef struct _SocketPool_Fetch_Arg
     void **DataOut;
 } SocketPool_Fetch_Arg;
 
+/* Bst_Enum_Callback exact signature: the old (Bst_Enum_Callback) cast hid a
+   function-pointer type mismatch that -fsanitize=function flags as UB. */
 static int SocketPool_Fetch_Inner(Bst *t,
-                                  const SocketUnit *su,
-                                  SocketPool_Fetch_Arg *Arg)
+                                  const void *Data,
+                                  void *ArgVoid)
 {
-    SOCKET *s = (SOCKET *)su;
+    SOCKET *s = (SOCKET *)Data;
+    SocketPool_Fetch_Arg *Arg = (SocketPool_Fetch_Arg *)ArgVoid;
 
     if( FD_ISSET(*s, Arg->fs) )
     {
@@ -96,19 +99,21 @@ static SOCKET SocketPool_FetchOnSet(SocketPool *sp,
     ret.DataOut = Data;
 
     sp->t.Enum(&(sp->t),
-               (Bst_Enum_Callback)SocketPool_Fetch_Inner,
+               SocketPool_Fetch_Inner,
                &ret
                );
 
     return ret.Sock;
 }
 
+/* Bst_Enum_Callback exact signature (see SocketPool_Fetch_Inner). */
 static int SocketPool_CloseAll_Inner(Bst *t,
-                                     SocketUnit *Data,
-                                     const SOCKET *ExceptFor
+                                     const void *Data,
+                                     void *ArgVoid
                                      )
 {
-    const SOCKET *s = (SOCKET *)Data;
+    const SOCKET *s = (const SOCKET *)Data;
+    const SOCKET *ExceptFor = (const SOCKET *)ArgVoid;
 
     if( *s != INVALID_SOCKET && *s != *ExceptFor )
     {
@@ -121,7 +126,7 @@ static int SocketPool_CloseAll_Inner(Bst *t,
 static void SocketPool_CloseAll(SocketPool *sp, SOCKET ExceptFor)
 {
     sp->t.Enum(&(sp->t),
-               (Bst_Enum_Callback)SocketPool_CloseAll_Inner,
+               SocketPool_CloseAll_Inner,
                &ExceptFor
                );
 }
@@ -137,10 +142,10 @@ static void SocketPool_Free(SocketPool *sp, BOOL CloseAllSocket)
     sp->t.Free(&(sp->t));
 }
 
-static int Compare(const SocketUnit *_1, const SocketUnit *_2)
+static int Compare(const void *_1, const void *_2)
 {
-    SOCKET a = *(SOCKET *)_1;
-    SOCKET b = *(SOCKET *)_2;
+    SOCKET a = *(const SOCKET *)_1;
+    SOCKET b = *(const SOCKET *)_2;
 
     /* Must satisfy strict weak ordering. A plain subtraction both truncates
        the handle on Win64 (SOCKET is 64-bit) and can overflow signed int,
@@ -154,9 +159,12 @@ int SocketPool_Init(SocketPool *sp, int DataLength)
 {
     DataLength += SOCKETPOOL_HEADER;
 
+    /* Compare has the exact CompareFunc signature (const void *): the old
+       (CompareFunc) cast hid a function-pointer type mismatch that
+       -fsanitize=function flags as UB. */
     if( Bst_Init(&(sp->t),
                     DataLength,
-                    (CompareFunc)Compare
+                    Compare
                     )
        != 0 )
     {

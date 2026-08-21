@@ -241,25 +241,21 @@ static int InitCacheInfo(ConfigFileInfo *ConfigInfo, BOOL Reload)
 
 static void DNSCache_Cleanup(void)
 {
-    if( CacheFileHandle != INVALID_FILE )
-    {
-        if(CacheMappingHandle != INVALID_MAP)
-        {
-            UNMAP_FILE(MapStart, CacheSize);
-            DESTROY_MAPPING(CacheMappingHandle);
-        }
-        CLOSE_FILE(CacheFileHandle);
-    }
-    if( TtlCtrl != NULL)
-    {
-        CacheTtlCrtl_Free(TtlCtrl);
-    }
-    if( MemoryCache && MapStart != NULL )
-    {
-        CacheHT_Free(CacheInfo);
-        SafeFree(MapStart);
-    }
-    RWLock_Destroy(CacheLock);
+    /* Deliberately a no-op: background threads can still be running when this
+       atexit handler fires.  The TimedTask worker executes
+       DNSCacheTTLCountdown_Task() and is only stopped by TimedTask_Cleanup(),
+       which is registered EARLIER and therefore (atexit is LIFO) runs AFTER
+       this handler; the module worker threads (UdpM_Works / TcpM_Works) may
+       be inside DNSCache_AddItemsToCache() until Modules_Cleanup() runs,
+       which is also later.  Those threads take CacheLock and read/write
+       through MapStart / CacheInfo / CacheCount, and the write path consults
+       TtlCtrl.  Destroying the lock, unmapping the file, closing the handle
+       or freeing the storage here would race them (locking a destroyed
+       rwlock, use-after-unmap / use-after-free).  Like the other shutdown
+       handlers that face the same problem (dynamichosts.c, domainstatistic.c,
+       timedtask.c), leave everything in place: the OS reclaims the lock, the
+       mapping, the file descriptor and the heap blocks when the process
+       exits. */
 }
 
 int DNSCache_Init(ConfigFileInfo *ConfigInfo)

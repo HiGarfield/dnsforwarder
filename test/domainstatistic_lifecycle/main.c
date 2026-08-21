@@ -133,6 +133,12 @@ int main(void)
        protocol regressed. */
     printf("returning from main to trigger atexit cleanup...\n");
 
+    /* Release the config structures built by ConfigAddOption() above.
+       Without this the suite reports an LSan leak (1396 bytes in 15
+       allocations) at exit, which is a test-harness artifact rather than a
+       production leak. */
+    ConfigFree(&Info);
+
     if( failures == 0 )
     {
         printf("\nALL TESTS PASSED: domainstatistic lifecycle.\n");

@@ -17,10 +17,11 @@ void TcpFrontend_ReleaseSocket(SOCKET s)
 
 /* goodiplist.c: HostsUtils_Generate only calls GoodIpList_Get for the
    HOSTS_TYPE_GOOD_IP_LIST branch, which the regression tests never reach. */
-const char *GoodIpList_Get(const void *Data)
+int GoodIpList_Get(const void *Data, void *Address)
 {
     (void)Data;
-    return NULL;
+    (void)Address;
+    return -1;
 }
 
 /* Logging: the production logs.c pulls in configuration routines that are not

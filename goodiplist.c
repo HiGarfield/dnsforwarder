@@ -398,10 +398,15 @@ int GoodIpList_Init(ConfigFileInfo *ConfigInfo)
     return 0;
 }
 
-const char *GoodIpList_Get(const char *List)
+int GoodIpList_Get(const char *List, void *Address)
 {
     ListInfo   *m = NULL;
-    const char *Ret = NULL;
+    int Ret = -1;
+
+    if( Address == NULL )
+    {
+        return -1;
+    }
 
     RWLock_RdLock(ListLock);
     if( StringChunk_Match_NoWildCard(GoodIpList,
@@ -415,14 +420,18 @@ const char *GoodIpList_Get(const char *List)
        m != NULL
        )
     {
-        if( Array_GetUsed(&(m->List)) <= 0 )
+        if( Array_GetUsed(&(m->List)) > 0 )
         {
-            Ret = NULL;
-        } else {
-            Ret = (const char *)&(((const struct sockaddr_in *)Array_GetBySubscript(&(m->List), 0))->sin_addr);
+            /* Copy the 4 address bytes out under the lock.  ThreadJod moves
+               the fastest IP to index 0 with memmove while holding the same
+               (write) lock; returning a pointer into the array and reading it
+               after unlock would race with that swap (torn read). */
+            memcpy(Address,
+                   &(((const struct sockaddr_in *)Array_GetBySubscript(&(m->List), 0))->sin_addr),
+                   4
+                   );
+            Ret = 0;
         }
-    } else {
-        Ret = NULL;
     }
     RWLock_UnRLock(ListLock);
 

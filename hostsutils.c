@@ -94,10 +94,12 @@ static int HostsUtils_Generate(int              Number,
 
     case HOSTS_TYPE_GOOD_IP_LIST:
         {
-            const char *ActuallData;
+            /* GoodIpList_Get copies the 4 address bytes into this buffer
+               while holding the list lock, so the measurement task's memmove
+               swap cannot race with our read (see goodiplist.c). */
+            char ActuallData[4];
 
-            ActuallData = GoodIpList_Get(Data);
-            if( ActuallData == NULL )
+            if( GoodIpList_Get(Data, ActuallData) != 0 )
             {
                 return -96;
             }

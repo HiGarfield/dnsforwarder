@@ -228,6 +228,7 @@ int Base64Decode(const char *File)
     DWORD OutFileSize = 0;
     char *FileContent;
     char *ResultContent;
+    int ret = 0;
 
     if( fp == NULL )
     {
@@ -322,13 +323,13 @@ EXIT_1:
 
 #else /* _WIN32 */
 #ifdef BASE64_DECODER_OPENSSL
-    BIO *ub64, *bmem *bmem_2;
-
+    BIO *ub64, *bmem, *bmem_2;
     FILE *fp = fopen(File, "rb");
     long FileSize;
     int OutputSize = 0;
     char *FileContent;
     char *ResultContent;
+    int ret = 0;
 
     if( fp == NULL )
     {
@@ -426,7 +427,18 @@ EXIT_1:
 EXIT_5:
     SafeFree(ResultContent);
 EXIT_4:
+    if( bmem_2 == NULL )
+    {
+        /* BIO_push failed: ub64 and bmem are still independent, release each
+           once and let EXIT_3 free ub64. */
+        BIO_free_all(bmem);
+        goto EXIT_3;
+    }
+    /* push succeeded: bmem now holds the chain head (ub64 with bmem attached),
+       so freeing it once releases the whole chain.  Do NOT fall through to
+       EXIT_3, which would free the already-freed ub64 again (double free). */
     BIO_free_all(bmem);
+    goto EXIT_2;
 EXIT_3:
     BIO_free_all(ub64);
 EXIT_2:
@@ -1156,10 +1168,16 @@ int ExpandPath(char *String, int BufferLength)
         return -1;
     }
 
-    if( (int)strlen(Result.we_wordv[0]) + 1 <= BufferLength )
+    if( (int)strlen(Result.we_wordv[0]) + 1 > BufferLength )
     {
-        strcpy(String, Result.we_wordv[0]);
+        /* Mirror the _WIN32 branch: an oversized expansion must be reported
+           as failure, not silently skipped (which would leave the caller
+           believing the unexpanded path was the expanded one). */
+        wordfree(&Result);
+        return -1;
     }
+
+    strcpy(String, Result.we_wordv[0]);
 
     wordfree(&Result);
     return 0;

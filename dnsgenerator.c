@@ -591,6 +591,16 @@ static int DnsGenerator_RawData(DnsGenerator *g,
         return -5;
     }
 
+    /* The up-front LEFT_LENGTH check above ran BEFORE the owner name and the
+       10-byte record header were written, so a long name can consume the
+       slack it validated.  Re-check the destination right before the RDATA
+       copy (DnsGenerator_CopyCName already does this) so the memcpy can never
+       run past the end of the buffer. */
+    if( LEFT_LENGTH(g) < DataLength )
+    {
+        return -6;
+    }
+
     memcpy(g->Itr, Data, DataLength);
     g->Itr += DataLength;
 
@@ -782,6 +792,14 @@ static int DnsGenerator_CopyA(DnsGenerator *g, DnsSimpleParserIterator *i)
         return -5;
     }
 
+    /* The up-front LEFT_LENGTH >= 4 check ran before the owner name and the
+       10-byte record header were written; a long owner name can leave less
+       than 4 bytes.  Re-check right before the copy (see CopyCName). */
+    if( LEFT_LENGTH(g) < 4 )
+    {
+        return -6;
+    }
+
     memcpy(g->Itr, i->RowData(i), 4);
 
     g->Itr += 4;
@@ -846,6 +864,14 @@ static int DnsGenerator_CopyAAAA(DnsGenerator *g, DnsSimpleParserIterator *i)
     if( DnsGenerator_16Uint(g, 16) != 0 )
     {
         return -5;
+    }
+
+    /* The up-front LEFT_LENGTH >= 16 check ran before the owner name and the
+       10-byte record header were written; a long owner name can leave less
+       than 16 bytes.  Re-check right before the copy (see CopyCName). */
+    if( LEFT_LENGTH(g) < 16 )
+    {
+        return -6;
     }
 
     memcpy(g->Itr, i->RowData(i), 16);

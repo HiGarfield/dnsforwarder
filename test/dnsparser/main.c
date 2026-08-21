@@ -196,6 +196,59 @@ static void Test_CompressionPointerLoop(void)
 }
 
 /*
+ * DNSGetHostName() must validate NameStart against the message bounds BEFORE
+ * reading the first label-length octet.  The old code read
+ * `LabelCount = GET_8_BIT_U_INT(NameItr)' first and only then checked
+ * `NameStart >= DNSBody + DNSBodyLength', so a caller that passed an
+ * out-of-range NameStart (e.g. one-past-the-end) caused a single
+ * out-of-bounds read before the function returned -1.  The buffer is heap
+ * allocated so ASan/UBSan flags that read as heap-buffer-overflow.
+ */
+static void Test_DNSGetHostNameRejectsOutOfRangeStart(void)
+{
+    char Raw[64];
+    char Name[128];
+    char *Tight;
+    int Length;
+
+    printf("DNSGetHostName out-of-range NameStart\n");
+
+    memset(Raw, 0, sizeof(Raw));
+    Length = BuildQuery(Raw);
+
+    /* The message is Length bytes.  A second heap block of EXACTLY Length
+       bytes makes `Tight + Length' one-past-the-end of the allocation, so an
+       out-of-bounds read at that spot is a real ASan/UBSan heap-buffer-
+       overflow, not a read of adjacent stack/padding bytes. */
+    Tight = (char *)malloc((size_t)Length);
+    if( Tight == NULL )
+    {
+        Check("heap allocation", 0);
+        return;
+    }
+    memcpy(Tight, Raw, (size_t)Length);
+
+    /* One-past-the-end: the pre-fix code dereferenced it before bailing. */
+    Check("NameStart == end is rejected without reading OOB",
+          DNSGetHostName(Tight, Length, Tight + Length, Name, sizeof(Name)) < 0);
+
+    /* Far past the end. */
+    Check("NameStart far past the end is rejected",
+          DNSGetHostName(Tight, Length, Tight + Length + 16, Name, sizeof(Name)) < 0);
+
+    /* Before the message start (one-past-end of a shorter range). */
+    Check("NameStart before the message is rejected",
+          DNSGetHostName(Tight + 4, Length - 4, Tight, Name, sizeof(Name)) < 0);
+
+    /* The in-range path is unaffected (returns the label length > 0). */
+    Check("in-range NameStart still parses",
+          DNSGetHostName(Tight, Length, Tight + 12, Name, sizeof(Name)) > 0 &&
+          strcmp(Name, "a.bc") == 0);
+
+    free(Tight);
+}
+
+/*
  * IPv4AddressToNum() must not write anything, and must report failure, when
  * the textual address is not exactly four in-range decimal components.
  * Otherwise callers store uninitialised stack bytes as an IP address.
@@ -374,6 +427,7 @@ int main(void)
     Test_ShortTcpBufferIsRejected();
     Test_TruncatedRecordIsRejected();
     Test_CompressionPointerLoop();
+    Test_DNSGetHostNameRejectsOutOfRangeStart();
     Test_IPv4AddressToNum();
     Test_IPv6AddressToNumDoesNotOverflow();
     Test_AddressPortFallback();

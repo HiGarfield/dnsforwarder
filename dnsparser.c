@@ -62,16 +62,21 @@ int DNSGetHostName(const char *DNSBody, int DNSBodyLength, const char *NameStart
        no terminating 0x00 could be scanned far past the end of the
        message. RFC 1035 caps a domain name at 255 octets. */
     int TotalNameBytes = 0;
-    int LabelCount = GET_8_BIT_U_INT(NameItr); /* The amount of characters of the next label */
+    int LabelCount; /* The amount of characters of the next label */
 
     /* A DNS name (all labels + length octets, excluding the final root
        label) may never exceed 255 bytes per RFC 1035. Without this guard a
        malformed message with labels that point at each other could make us
-       walk far past the end of the packet. */
+       walk far past the end of the packet.  The check must run BEFORE the
+       first GET_8_BIT_U_INT(NameItr) below, otherwise an out-of-range
+       NameStart (e.g. == DNSBody + DNSBodyLength, passed by a caller that
+       skipped its own pre-validation) is dereferenced once before the
+       function bails out. */
     if( DNSBody != NULL && (NameStart < DNSBody || NameStart >= DNSBody + DNSBodyLength) )
     {
         return -1;
     }
+    LabelCount = GET_8_BIT_U_INT(NameItr);
     while( LabelCount != 0 )
     {
         if( DNSIsLabelPointerStart(LabelCount) )

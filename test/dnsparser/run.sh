@@ -26,7 +26,7 @@ $Root/dnsgenerator.c
 $Root/test/tcpfrontend_stub.c
 "
 
-${CC:-cc} -I"$Root" -g -Wall -o "$Out" $Sources -lpthread -lm
+${CC:-cc} -I"$Root" -g -Wall $CFLAGS -o "$Out" $Sources -lpthread -lm
 
 if [ -n "$VALGRIND" ]; then
     valgrind --error-exitcode=9 --leak-check=full -q "$Out"

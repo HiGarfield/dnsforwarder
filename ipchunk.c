@@ -218,10 +218,18 @@ static int Contain(IpElement *New, IpElement *Elm)
         }
         if( cmpBits > 0 )
         {
-            uint32_t u32New, u32Elm, mask;
+            /* bn/be point into IpAddr.Addr (an unsigned char array inside the
+               BST keys).  That array sits at an unknown offset inside the
+               struct, so a *(uint32_t *) cast is both a strict-aliasing
+               violation and a potentially unaligned load (SIGBUS on strict-
+               alignment targets).  Read through memcpy, which is defined for
+               every alignment. */
+            uint32_t u32New, u32Elm, mask, rawNew, rawElm;
             mask = htonl(~(~0U >> cmpBits));
-            u32New = *(uint32_t *)bn & mask;
-            u32Elm = *(uint32_t *)be & mask;
+            memcpy(&rawNew, bn, 4);
+            memcpy(&rawElm, be, 4);
+            u32New = rawNew & mask;
+            u32Elm = rawElm & mask;
             ret = (u32New > u32Elm) - (u32New < u32Elm);
         }
 

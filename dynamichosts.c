@@ -244,6 +244,12 @@ static void GetHostsFromInternet_Thread(void *Unused1, void *Unused2)
 #if !defined(TEST_RELOADING)
     } else {
         ERRORMSG("Getting hosts file(s) failed.\n");
+
+        /* Clear the flag on the FAILURE path too: DynamicHosts_Cleanup()
+           spins on `while(Reloading) SLEEP(10)' before tearing the container
+           down.  If a failed download left Reloading set, the atexit handler
+           would spin forever and the process would hang at shutdown. */
+        Reloading = FALSE;
     }
 #endif
 }
@@ -338,12 +344,18 @@ int DynamicHosts_GetCName(const char *Domain, char *Buffer)
 {
     int ret;
 
+    /* Check MainDynamicContainer INSIDE the read lock.  DynamicHosts_Cleanup()
+       takes the write lock before freeing the container and NULLing the
+       pointer, so the container cannot be freed while we hold the read lock.
+       A lock-free pre-check would let cleanup free the container between the
+       check and the lock acquisition (use-after-free at shutdown). */
+    RWLock_RdLock(HostsLock);
+
     if( MainDynamicContainer == NULL )
     {
+        RWLock_UnRLock(HostsLock);
         return -198;
     }
-
-    RWLock_RdLock(HostsLock);
 
     ret = HostsUtils_GetCName(Domain,
                               Buffer,
@@ -359,12 +371,14 @@ BOOL DynamicHosts_TypeExisting(const char *Domain, HostsRecordType Type)
 {
     BOOL ret;
 
+    /* Same in-lock NULL check as DynamicHosts_GetCName (see above). */
+    RWLock_RdLock(HostsLock);
+
     if( MainDynamicContainer == NULL )
     {
+        RWLock_UnRLock(HostsLock);
         return FALSE;
     }
-
-    RWLock_RdLock(HostsLock);
 
     ret = HostsUtils_TypeExisting((HostsContainer *)MainDynamicContainer,
                                   Domain,
@@ -380,12 +394,14 @@ HostsUtilsTryResult DynamicHosts_Try(MsgContext *MsgCtx, int BufferLength)
 {
     HostsUtilsTryResult ret;
 
+    /* Same in-lock NULL check as DynamicHosts_GetCName (see above). */
+    RWLock_RdLock(HostsLock);
+
     if( MainDynamicContainer == NULL )
     {
+        RWLock_UnRLock(HostsLock);
         return HOSTSUTILS_TRY_NONE;
     }
-
-    RWLock_RdLock(HostsLock);
 
     ret = HostsUtils_Try(MsgCtx,
                          BufferLength,

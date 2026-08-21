@@ -91,6 +91,13 @@ static ModuleInterface *StoreAModule(ModuleMap *ModuleMap)
 
     Added->ModuleName = "Unknown";
 
+    /* The constructor (Udp_Init_Core / Tcp_Init) fills Send only after its
+       module init succeeds; when UdpM_Init / TcpM_Init fails the module is
+       left in ModuleArray with a garbage Send pointer, and MMgr_Send() would
+       call through it (crash).  Default it to NULL here and have MMgr_Send()
+       skip modules without a Send routine. */
+    Added->Send = NULL;
+
     return Added;
 }
 
@@ -961,7 +968,17 @@ int MMgr_Send(const char *Buffer, int BufferLength)
         ret = -190;
     } else {
         TheModule = *i;
-        ret = TheModule->Send(&(TheModule->ModuleUnion), h, BufferLength);
+
+        if( TheModule->Send == NULL )
+        {
+            /* A module whose constructor failed (bad config, bind error, out
+               of memory) never got a Send routine (see StoreAModule).  Do not
+               call the NULL pointer; drop the query instead. */
+            MsgContext_ReleaseSocket(MsgCtx);
+            ret = -190;
+        } else {
+            ret = TheModule->Send(&(TheModule->ModuleUnion), h, BufferLength);
+        }
     }
 
     RWLock_UnRLock(ModulesLock);

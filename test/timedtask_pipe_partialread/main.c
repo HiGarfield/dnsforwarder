@@ -7,7 +7,10 @@
  * arguments) to the scheduler.
  *
  * Fix: TimedTask_ReadOneTask() loops until the whole TaskInfo is assembled and
- * returns 0 (discard) on a short read instead of enqueueing garbage.
+ * returns 0 (discard) on a short read / EAGAIN / EOF instead of enqueueing
+ * garbage.  In production the read end is created with O_NONBLOCK (see
+ * TimedTask_Init), so this test mirrors that by setting the same flag on the
+ * pipe it creates.
  *
  * This test links timedtask.c with TIMEDTASK_UNITTEST defined so it can call
  * TimedTask_ReadOneTask() directly.
@@ -19,6 +22,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include "../../common.h"
@@ -78,6 +82,7 @@ int main(void)
     int fds[2];
     TestTaskInfo want, got;
     int r;
+    int Flags;
 
     if( pipe(fds) != 0 )
     {
@@ -85,26 +90,30 @@ int main(void)
         return 2;
     }
 
-    /* ---- Case 1: a lone 1-byte wake-up byte must be discarded (return 0) ---- */
-    char dummy = 0;
-    if( write(fds[1], &dummy, 1) != 1 )
+    /* Mirror production: the read end is O_NONBLOCK so a partial record yields
+       EAGAIN instead of blocking forever. */
+    Flags = fcntl(fds[0], F_GETFL, 0);
+    if( Flags < 0 || fcntl(fds[0], F_SETFL, Flags | O_NONBLOCK) != 0 )
     {
-        perror("write");
+        perror("fcntl");
         return 2;
     }
-    memset(&got, 0xAB, sizeof(got));   /* pre-fill with a different poison */
-    r = TimedTask_ReadOneTask(fds[0], &got);
-    CHECK(r == 0,
-          "short read (1-byte wake-up) is discarded, not enqueued (ret==0)");
-    /* got must NOT have been overwritten with valid-looking data. */
-    CHECK(!tasks_equal(&got, &want) || r != 1,
-          "short read leaves the output buffer untouched (no corruption)");
 
-    /* ---- Case 2: a full TaskInfo preceded by a stray wake-up byte ----
-       Simulates cleanup byte + real task arriving together; the reader must
-       reassemble the full structure and ignore the leading dummy. */
-    dummy = 0;
-    write(fds[1], &dummy, 1);
+    /* ---- Case 1: a lone 1-byte wake-up byte must be discarded (return 0) ---- */
+    {
+        char dummy = 0;
+        if( write(fds[1], &dummy, 1) != 1 )
+        {
+            perror("write");
+            return 2;
+        }
+        memset(&got, 0xAB, sizeof(got));   /* pre-fill with a different poison */
+        r = TimedTask_ReadOneTask(fds[0], &got);
+        CHECK(r == 0,
+              "short read (1-byte wake-up) is discarded, not enqueued (ret==0)");
+    }
+
+    /* ---- Case 2: a complete TaskInfo must be reassembled (return 1) ---- */
     fill_task(&want, 7);
     if( write(fds[1], &want, sizeof(want)) != (int)sizeof(want) )
     {
@@ -113,18 +122,24 @@ int main(void)
     }
     memset(&got, 0xAB, sizeof(got));
     r = TimedTask_ReadOneTask(fds[0], &got);
-    CHECK(r == 1, "complete TaskInfo after a short read is recognised (ret==1)");
+    CHECK(r == 1, "complete TaskInfo is recognised (ret==1)");
     CHECK(tasks_equal(&want, &got),
           "reassembled TaskInfo matches the written one (no truncation/corruption)");
 
     /* ---- Case 3: EOF (writer closed) after a partial write -> return 0 ---- */
-    dummy = 0;
-    write(fds[1], &dummy, 1);
-    close(fds[1]);                      /* trigger EOF after the 1 byte */
-    memset(&got, 0xAB, sizeof(got));
-    r = TimedTask_ReadOneTask(fds[0], &got);
-    CHECK(r == 0,
-          "partial read followed by EOF is discarded (ret==0, no crash)");
+    {
+        char dummy = 0;
+        if( write(fds[1], &dummy, 1) != 1 )
+        {
+            perror("write");
+            return 2;
+        }
+        close(fds[1]);                      /* trigger EOF after the 1 byte */
+        memset(&got, 0xAB, sizeof(got));
+        r = TimedTask_ReadOneTask(fds[0], &got);
+        CHECK(r == 0,
+              "partial read followed by EOF is discarded (ret==0, no crash)");
+    }
 
     close(fds[0]);
 

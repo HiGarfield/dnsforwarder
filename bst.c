@@ -104,6 +104,25 @@ PUBFUNC const void *Bst_Add(Bst *t, const void *Data)
     }
 }
 
+/* Bst_Search() is meant to enumerate every node whose key compares equal to
+   `Key`: call it repeatedly with the previously returned match as `Last`
+   until it returns NULL.  The continuation rule below relies on Bst_Add()
+   inserting equal keys into the LEFT subtree (CompareResult <= 0 goes left):
+
+     1. No node whose key equals `Key` can ever live in the RIGHT subtree of
+        another such node (an equal key inserted later compares 0 against it
+        and always turns left).  Hence, once a match `Last` has been found,
+        every remaining match is confined to `Last`'s left subtree.
+     2. The first call (Last == NULL) hits the topmost equal node, and all
+        other equal keys are descendants of it (they all follow the same
+        comparison path and branch left at the first equal node).
+
+   Therefore "restart a normal search from Last's left child" visits every
+   equal node exactly once, in the order they were inserted, and cannot loop:
+   each returned match is a strict descendant of the previous one.  Resuming
+   from the in-order successor instead is WRONG: it skips equal keys that the
+   equal-goes-left rule placed in Last's left subtree (verified by the
+   duplicate-key regression test in test/bst_invariant). */
 PUBFUNC const void *Bst_Search(Bst *t, const void *Key, const void *Last)
 {
     Bst_NodeHead *Current;
@@ -114,6 +133,8 @@ PUBFUNC const void *Bst_Search(Bst *t, const void *Key, const void *Last)
         /* root as the starting point */
         Current = t->Root;
     } else {
+        /* Continuing a previous match: every remaining equal key lives in
+           the left subtree of `Last` (see comment above). */
         Current = (((Bst_NodeHead *)Last) - 1)->Left;
     }
 
@@ -134,28 +155,97 @@ PUBFUNC const void *Bst_Search(Bst *t, const void *Key, const void *Last)
     return NULL;
 }
 
-PRIFUNC void Bst_Enum_Inner(Bst *t,
-                            Bst_NodeHead *n,
-                            Bst_Enum_Callback cb,
-                            void *Arg,
-                            BOOL *StopFlag
-                            )
+#define BST_ENUM_STACK_CAPACITY 64
+
+/* Push a node onto the explicit walk stack, growing it if needed.  Returns 0
+   on success, -1 if the (re)allocation fails. */
+PRIFUNC int Bst_Enum_Push(Bst_NodeHead ***Stack,
+                          size_t *StackCap,
+                          size_t *Top,
+                          Bst_NodeHead *Node
+                          )
 {
-    if( n == NULL || *StopFlag )
+    if( *Top >= *StackCap )
     {
-        return;
+        Bst_NodeHead **NewStack;
+        size_t NewCap = (*StackCap) * 2;
+
+        NewStack = (Bst_NodeHead **)realloc(*Stack,
+                                            NewCap * sizeof(Bst_NodeHead *)
+                                            );
+        if( NewStack == NULL )
+        {
+            return -1;
+        }
+        *Stack = NewStack;
+        *StackCap = NewCap;
     }
 
-    *StopFlag = cb(t, n + 1, Arg) != 0;
-
-    Bst_Enum_Inner(t, n->Left, cb, Arg, StopFlag);
-    Bst_Enum_Inner(t, n->Right, cb, Arg, StopFlag);
+    (*Stack)[(*Top)++] = Node;
+    return 0;
 }
 
 PUBFUNC void Bst_Enum(Bst *t, Bst_Enum_Callback cb, void *Arg)
 {
+    /* The old implementation walked the tree recursively.  A BST has no
+       balancing invariant here, so a sorted insertion produces a degenerate
+       tree whose depth equals the node count; on a large dataset the recursive
+       pre-order walk then blows the stack.  Use an explicit stack instead. */
+    Bst_NodeHead **Stack;
+    size_t StackCap = BST_ENUM_STACK_CAPACITY;
+    size_t Top = 0;                 /* number of elements currently on the stack */
     BOOL StopFlag = FALSE;
-    Bst_Enum_Inner(t, t->Root, cb, Arg, &StopFlag);
+
+    if( t == NULL || cb == NULL )
+    {
+        return;
+    }
+
+    Stack = (Bst_NodeHead **)malloc(StackCap * sizeof(Bst_NodeHead *));
+    if( Stack == NULL )
+    {
+        return;
+    }
+
+    if( t->Root != NULL )
+    {
+        Stack[Top++] = t->Root;
+    }
+
+    while( Top != 0 )
+    {
+        Bst_NodeHead *n = Stack[--Top];
+
+        /* Same stop semantics as the recursive version: a node whose callback
+           returns non-zero stops the walk and its subtree is never visited. */
+        if( StopFlag )
+        {
+            break;
+        }
+
+        StopFlag = cb(t, n + 1, Arg) != 0;
+
+        /* Push children so the left subtree is processed first (pre-order,
+           exactly like the old recursive traversal order). */
+        if( n->Right != NULL )
+        {
+            if( Bst_Enum_Push(&Stack, &StackCap, &Top, n->Right) != 0 )
+            {
+                free(Stack);
+                return;
+            }
+        }
+        if( n->Left != NULL )
+        {
+            if( Bst_Enum_Push(&Stack, &StackCap, &Top, n->Left) != 0 )
+            {
+                free(Stack);
+                return;
+            }
+        }
+    }
+
+    free(Stack);
 }
 
 PUBFUNC const void *Bst_Minimum(Bst *t, const void *Subtree)

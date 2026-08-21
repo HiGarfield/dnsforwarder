@@ -58,7 +58,10 @@ int CacheTtlCrtl_Add_From_String(CacheTtlCtrl *c, const char *Rule)
         Infection = TTL_CTRL_INFECTION_AGGRESSIVLY;
     }
 
-    #define IS_STATE(s) (strncmp(Cmd, (s), strlen(s)) == 0)
+    /* Exact match only: a prefix test (strncmp) would accept mistyped
+       commands such as "origX", "nocacheYY", "fixedZZ" or "variWW" and apply
+       a TTL policy the user never asked for. */
+    #define IS_STATE(s) (strcmp(Cmd, (s)) == 0)
     if( IS_STATE("orig") )
     {
         State = TTL_STATE_ORIGINAL;

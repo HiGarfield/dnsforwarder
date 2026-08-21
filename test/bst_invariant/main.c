@@ -310,6 +310,159 @@ static void ResetAll(Bst *t)
     LiveCount = 0;
 }
 
+/* ---- duplicate-key regression tests ------------------------------------ */
+
+/* Rng() is defined below (after TestDuplicates); this forward declaration
+   lets the duplicate-key soak use it. */
+static unsigned long Rng(void);
+
+/* Counts the matches repeated Bst_Search(Key, Last) yields for `Key`, and
+   verifies that no node is returned twice and every returned node really
+   holds `Key`.  A non-positive result means the enumeration is broken. */
+static int CountMatches(Bst *t, int Key)
+{
+    const void *Seen[700];
+    int SeenCount = 0;
+    const void *p = NULL;
+    int count = 0;
+
+    while( (p = t->Search(t, &Key, p)) != NULL )
+    {
+        int j;
+
+        if( count >= (int)(sizeof(Seen) / sizeof(Seen[0])) )
+        {
+            ok("Search enumeration terminates (no infinite loop)", 0);
+            return -1;
+        }
+        for( j = 0; j < SeenCount; ++j )
+        {
+            if( Seen[j] == p )
+            {
+                ok("Search never returns the same match twice", 0);
+                return -1;
+            }
+        }
+        Seen[SeenCount++] = p;
+        if( *(const int *)p != Key )
+        {
+            ok("Search only returns nodes equal to the key", 0);
+            return -1;
+        }
+        ++count;
+    }
+    return count;
+}
+
+static int EnumCountCb(Bst *t, const void *Data, void *Arg)
+{
+    (void)t;
+    (void)Data;
+    ++*(int *)Arg;
+    return 0;
+}
+
+/* Bst_Add inserts equal keys into the LEFT subtree.  Repeated Bst_Search
+   must therefore enumerate every equal key exactly once, by resuming from
+   the left subtree of the previous match.  A previous "fix" that resumed
+   from the in-order successor instead returned only the first match and
+   silently lost the rest; these shapes and the soak below pin the correct
+   continuation semantics. */
+static void TestDuplicates(Bst *t)
+{
+    static const int Shapes[4][7] = {
+        {5, 5, 5, 0, 0, 0, 0},       /* pure equal chain, root is a match   */
+        {5, 5, 3, 5, 5, 0, 0},       /* a smaller key interrupts the chain  */
+        {3, 5, 5, 1, 5, 2, 0},       /* the root is not a match             */
+        {10, 5, 20, 3, 7, 5, 5},     /* matches spread across several levels*/
+    };
+    static const int ShapeLen[4] = {3, 5, 6, 7};
+    static const int ShapeFives[4] = {3, 4, 3, 3};
+    int s, i;
+    int k5 = 5;
+
+    for( s = 0; s < 4; ++s )
+    {
+        char msg[256];
+        int got;
+
+        for( i = 0; i < ShapeLen[s]; ++i )
+        {
+            if( t->Add(t, &Shapes[s][i]) == NULL )
+            {
+                ok("Bst_Add in duplicate test did not fail", 0);
+            }
+        }
+
+        got = CountMatches(t, k5);
+        sprintf(msg, "dup shape %d: Search found %d equal keys (want %d)",
+                s, got, ShapeFives[s]);
+        ok(msg, got == ShapeFives[s]);
+
+        /* Deleting one match must leave every other equal key findable. */
+        {
+            const void *p = t->Search(t, &k5, NULL);
+
+            if( p == NULL )
+            {
+                ok("dup shape %d: first match exists", 0);
+            } else {
+                int enumTotal = 0;
+
+                t->Delete(t, p);
+                got = CountMatches(t, k5);
+                sprintf(msg, "dup shape %d: %d equal keys after deleting one (want %d)",
+                        s, got, ShapeFives[s] - 1);
+                ok(msg, got == ShapeFives[s] - 1);
+
+                t->Enum(t, EnumCountCb, &enumTotal);
+                sprintf(msg, "dup shape %d: Enum visits %d nodes (want %d)",
+                        s, enumTotal, ShapeLen[s] - 1);
+                ok(msg, enumTotal == ShapeLen[s] - 1);
+            }
+        }
+
+        t->Reset(t);
+    }
+
+    /* Randomised soak with duplicates.  Live[] is duplicate-free, so counts
+       are kept in a frequency table instead. */
+    {
+        static int Freq[100];
+        int step;
+        int enumTotal = 0;
+
+        memset(Freq, 0, sizeof(Freq));
+
+        for( step = 0; step < 500; ++step )
+        {
+            int k = (int)(Rng() % 100);
+            int got;
+
+            if( t->Add(t, &k) == NULL )
+            {
+                ok("Bst_Add in duplicate soak did not fail", 0);
+            }
+            ++Freq[k];
+
+            got = CountMatches(t, k);
+            if( got != Freq[k] )
+            {
+                char msg[256];
+
+                sprintf(msg, "dup soak step %d: %d matches for %d (want %d)",
+                        step, got, k, Freq[k]);
+                ok(msg, 0);
+                step = 1000;                    /* stop the soak */
+                break;
+            }
+        }
+
+        t->Enum(t, EnumCountCb, &enumTotal);
+        ok("dup soak: Enum visits every inserted node", enumTotal == 500);
+    }
+}
+
 /* ---- deterministic PRNG (so failures are reproducible) ---------------- */
 
 static unsigned long RngState = 20240601UL;
@@ -466,6 +619,11 @@ int main(void)
         DoAdd(&t, i);
     }
     VerifyTree(&t, Live, LiveCount, "refilled from free list");
+
+    /* --- Duplicate keys (Bst_Add equal-goes-left) --------------------- */
+    printf("Duplicate keys: repeated Search enumerates every equal key\n");
+    ResetAll(&t);
+    TestDuplicates(&t);
 
     t.Free(&t);
 

@@ -6,6 +6,8 @@
 
 #ifdef _WIN32
 #include "winmsgque.h"
+#else
+#include <fcntl.h> /* fcntl(), O_NONBLOCK */
 #endif /* _WIN32 */
 
 typedef struct _TaskInfo{
@@ -148,11 +150,17 @@ static int TimeTask_ReallyAdd(TaskInfo *i)
  * READ_PIPE is a raw read(2) on a stream pipe and may return fewer bytes than
  * requested (short read), so we loop until the whole structure is assembled.
  * Without this loop a single read() that fills only part of *Out would leave
- * the rest uninitialised and hand a corrupted task to TimeTask_ReallyAdd(). */
+ * the rest uninitialised and hand a corrupted task to TimeTask_ReallyAdd().
+ * The read end of the pipe is created with O_NONBLOCK (see TimedTask_Init):
+ * when only the 1-byte wake-up written by TimedTask_Cleanup() is available,
+ * the loop must terminate instead of blocking forever waiting for a full
+ * record -- otherwise Cleanup()'s JOIN_THREAD would hang the whole process
+ * at shutdown.  EAGAIN/EWOULDBLOCK therefore counts as "nothing more is
+ * available right now" and is treated like a short read (return 0). */
 #ifndef TIMEDTASK_UNITTEST
 static
 #endif /* TIMEDTASK_UNITTEST */
-int TimedTask_ReadOneTask(int fd, TaskInfo *Out)
+int TimedTask_ReadOneTask(int fd, void *Out)
 {
     char   *Cur = (char *)Out;
     size_t  Got = 0;
@@ -166,7 +174,14 @@ int TimedTask_ReadOneTask(int fd, TaskInfo *Out)
         } else if( r == 0 ) {
             /* EOF / pipe closed: no more data. */
             break;
-        } else if( errno != EINTR ) {
+        } else if( errno == EINTR ) {
+            /* Interrupted: retry the read. */
+            continue;
+        } else if( errno == EAGAIN || errno == EWOULDBLOCK ) {
+            /* Non-blocking pipe, nothing more available right now: the
+               record (if any) is incomplete, discard it. */
+            break;
+        } else {
             return -1;
         }
     }
@@ -546,7 +561,7 @@ static void TimedTask_Cleanup(void)
 
 int TimedTask_Init(void)
 {
-    ThreadHandle t;
+    ThreadHandle t = NULL_THREAD;
 
     if( LinkedQueue_Init(&TimeQueue,
                          sizeof(TaskInfo),
@@ -577,9 +592,44 @@ int TimedTask_Init(void)
         TimeQueue.Free(&TimeQueue);
         return -25;
     }
+
+    /* Make the read end of the self-pipe non-blocking.  TimedTask_Cleanup()
+       wakes the worker by writing a single byte; if the pipe stayed blocking,
+       TimedTask_ReadOneTask() would read that byte and then block forever
+       waiting for the rest of a TaskInfo that never comes, so Cleanup()'s
+       JOIN_THREAD() would hang the whole process at shutdown.  With O_NONBLOCK
+       the follow-up read() fails with EAGAIN, the short read is discarded and
+       the worker re-checks the exit flag and terminates. */
+    {
+        int Flags = fcntl(ReadFrom, F_GETFL, 0);
+        if( Flags < 0 || fcntl(ReadFrom, F_SETFL, Flags | O_NONBLOCK) != 0 )
+        {
+            close(ReadFrom);
+            close(WriteTo);
+            DESTROY_MUTEX(TimedTask_ExitMutex);
+            TimeQueue.Free(&TimeQueue);
+            return -25;
+        }
+    }
 #endif /* _WIN32 */
 
+#ifdef _WIN32
     CREATE_THREAD(TimeTask_Work, NULL, t);
+#else /* _WIN32 */
+    /* pthread_create() leaves *thread unspecified on failure; initialising t
+       to NULL_THREAD and re-checking is not guaranteed to detect it, so check
+       the return value explicitly.  A failed spawn must not leave a garbage
+       ThreadHandle behind that Cleanup() would later JOIN_THREAD(). */
+    if( pthread_create(&t,
+                       NULL,
+                       (void *(*)(void *))TimeTask_Work,
+                       NULL
+                       ) != 0
+       )
+    {
+        t = NULL_THREAD;
+    }
+#endif /* _WIN32 */
     TimedTask_Worker = t;
 
     /* Only now are all the resources Cleanup touches fully initialised.

@@ -22,6 +22,15 @@ static volatile HostsContainer  *MainDynamicContainer = NULL;
    while cleanup is tearing them down. */
 static volatile BOOL    ToExit = FALSE;
 
+/* TRUE while a reload thread is running.  It is set BEFORE the thread
+   touches any shared resource and cleared on every exit path, so
+   DynamicHosts_Cleanup() can wait on it: once it reads FALSE it knows no
+   reload thread can still be inside Filter_Update() / IpMiscMapping_Update()
+   / Modules_Update() against modules whose locks and lists have already been
+   torn down by other atexit handlers.  A thread spawned after the wait has
+   started will see ToExit first and return without touching anything. */
+static volatile BOOL    Reloading = FALSE;
+
 /* Arguments for updating  */
 static int          HostsRetryInterval;
 static char         Script[SIZE_OF_PATH_BUFFER] = "";
@@ -39,6 +48,20 @@ static void DynamicHosts_ContainerCleanup(HostsContainer *DynamicContainer)
 static void DynamicHosts_Cleanup(void)
 {
     ToExit = TRUE;
+
+    /* Wait until no reload thread is inside the download/update path.  A
+       reload thread that already passed its ToExit checks could otherwise
+       keep running Filter_Update() / IpMiscMapping_Update() / Modules_Update()
+       while their locks and lists are torn down by other atexit handlers
+       (use-after-free / locking destroyed locks during shutdown).  The
+       Reloading flag is set by the thread before it touches any shared
+       resource and cleared on every exit path, so once it reads FALSE no
+       such thread can still be active; any thread spawned later sees ToExit
+       first and returns immediately. */
+    while( Reloading )
+    {
+        SLEEP(10);
+    }
 
     /* Do NOT destroy HostsLock here. The detached reload thread
        (GetHostsFromInternet_Thread) may still be running when atexit fires;
@@ -58,8 +81,14 @@ static void DynamicHosts_Cleanup(void)
     MainDynamicContainer = NULL;
     RWLock_UnWLock(HostsLock);
 
-    FreeCharPtrArray(HostsURLs);
-    HostsURLs = NULL;
+    /* Intentionally do NOT free HostsURLs here.  The detached reload thread
+       (GetHostsFromInternet_Thread) reads HostsURLs at the start of every run
+       and passes it to GetFromInternet_MultiFiles(), which iterates it for the
+       whole duration of a download.  ToExit is only checked before and after
+       that call, so freeing HostsURLs while a download is in progress would
+       hand the thread a dangling pointer (use-after-free).  Like HostsLock
+       above, the memory is reclaimed by the OS when the process exits, so
+       leaving it untouched is both safe and sufficient. */
 }
 
 static int DynamicHosts_Load(void)
@@ -143,16 +172,24 @@ static void GetHostsFromInternet_Thread(void *Unused1, void *Unused2)
 {
 #if !defined(TEST_RELOADING)
     int         DownloadState;
+#endif /* !defined(TEST_RELOADING) */
 
+    /* Announce the reload before touching any shared resource, so
+       DynamicHosts_Cleanup()'s wait loop cannot miss this thread. */
+    Reloading = TRUE;
+
+#if !defined(TEST_RELOADING)
     /* Bail out if atexit cleanup is tearing down HostsLock / the container. */
     if( ToExit )
     {
+        Reloading = FALSE;
         return;
     }
 
     if( HostsURLs == NULL || HostsURLs[0] == NULL )
     {
         ERRORMSG("Hosts URLs list is not available.\n");
+        Reloading = FALSE;
         return;
     }
 
@@ -192,6 +229,7 @@ static void GetHostsFromInternet_Thread(void *Unused1, void *Unused2)
            and avoids touching HostsLock during shutdown. */
         if( ToExit )
         {
+            Reloading = FALSE;
             return;
         }
 
@@ -201,6 +239,8 @@ static void GetHostsFromInternet_Thread(void *Unused1, void *Unused2)
         Modules_Update();
 
         INFO("Reloading Modules completed.\n");
+
+        Reloading = FALSE;
 #if !defined(TEST_RELOADING)
     } else {
         ERRORMSG("Getting hosts file(s) failed.\n");

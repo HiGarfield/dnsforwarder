@@ -24,6 +24,13 @@ typedef struct _RankList{
 
 static EFFECTIVE_LOCK   StatisticLock;
 
+/* Becomes TRUE only after StatisticLock and MainChunk are both initialised.
+   DomainStatistic_Cleanup() is registered with atexit() before the lock is
+   created (the init code may still fail afterwards, e.g. fopen of the output
+   file), so without this guard the atexit handler would lock/destroy a
+   never-initialised lock -- undefined behaviour. */
+static BOOL             StatisticInited = FALSE;
+
 static StringChunk      MainChunk;
 
 static FILE             *MainFile = NULL;
@@ -110,17 +117,19 @@ static int DomainStatistic_Works(void *Unused, void *Unused2)
 
     unsigned long int GenerateTime_Num;
 
-    if( MainFile == NULL )
-    {
-        return 0;
-    }
+    /* Hold the lock for the ENTIRE generation.  DomainStatistic_Cleanup()
+       takes the same lock before freeing PreOutput/PostOutput, MainFile and
+       MainChunk, so it can never tear the shared state down underneath a
+       worker that already passed its checks; and DomainStatistic_Add() (which
+       also locks) can never interleave with the enumeration.  The lock-free
+       +SkipStatistic scheme of the old code left a window: the detached worker
+       checked ToExit, then Cleanup freed the buffers before the worker used
+       them -- a use-after-free / write-to-closed-stream at process exit. */
+    EFFECTIVE_LOCK_GET(StatisticLock);
 
-    /* Bail out if atexit cleanup is tearing down the shared resources we
-       are about to write into (PreOutput / MainFile).  Without this check
-       the worker could run after DomainStatistic_Cleanup has freed those,
-       a use-after-free / write-to-closed-stream at process exit. */
-    if( ToExit )
+    if( MainFile == NULL || ToExit )
     {
+        EFFECTIVE_LOCK_RELEASE(StatisticLock);
         return 0;
     }
 
@@ -130,6 +139,7 @@ static int DomainStatistic_Works(void *Unused, void *Unused2)
        unchecked errno left by rewind(). */
     if( fseek(MainFile, 0L, SEEK_SET) != 0 )
     {
+        EFFECTIVE_LOCK_RELEASE(StatisticLock);
         return -1;
     }
 
@@ -149,9 +159,7 @@ static int DomainStatistic_Works(void *Unused, void *Unused2)
 
     Enum_Start = 0;
 
-    EFFECTIVE_LOCK_GET(StatisticLock);
     SkipStatistic = TRUE;
-    EFFECTIVE_LOCK_RELEASE(StatisticLock);
 
     Str = StringChunk_Enum_NoWildCard(&MainChunk, &Enum_Start, (void **)&Info);
     while( Str != NULL )
@@ -191,9 +199,7 @@ static int DomainStatistic_Works(void *Unused, void *Unused2)
         Str = StringChunk_Enum_NoWildCard(&MainChunk, &Enum_Start, (void **)&Info);
     }
 
-    EFFECTIVE_LOCK_GET(StatisticLock);
     SkipStatistic = FALSE;
-    EFFECTIVE_LOCK_RELEASE(StatisticLock);
 
     fprintf(MainFile, "];");
 
@@ -220,27 +226,67 @@ static int DomainStatistic_Works(void *Unused, void *Unused2)
 
     fflush(MainFile);
 
+    EFFECTIVE_LOCK_RELEASE(StatisticLock);
+
     return 0;
 }
 
 static void DomainStatistic_Cleanup(void)
 {
-    /* Signal the (detached) statistic worker thread to stop before we free
-       the resources it writes into.  We cannot join it (TimedTask detaches),
-       so this cooperative flag is what keeps DomainStatistic_Works from
-       touching a freed PreOutput / closed MainFile. */
+    /* Signal the (detached) statistic worker thread to stop and free every
+       shared resource while holding StatisticLock -- the same lock that
+       DomainStatistic_Works() holds for its whole body.  The worker therefore
+       cannot be in the middle of writing to PreOutput / MainFile / MainChunk
+       when they are released here (the ToExit flag alone had a check-then-use
+       window: the worker could pass the check and then be pre-empted before
+       the free happened).  We cannot join the worker (TimedTask detaches it),
+       so mutual exclusion over the shared state is the only safe scheme. */
+    /* If Init() never reached the point where StatisticLock / MainChunk were
+       created (e.g. the output file could not be opened), the resources below
+       are uninitialised; touching them would be UB. */
+    if( !StatisticInited )
+    {
+        if( PreOutput != NULL )
+        {
+            SafeFree(PreOutput);
+            PreOutput = NULL;
+            PostOutput = NULL;
+        }
+        if( MainFile != NULL )
+        {
+            fclose(MainFile);
+            MainFile = NULL;
+        }
+        return;
+    }
+
+    EFFECTIVE_LOCK_GET(StatisticLock);
     ToExit = TRUE;
 
     if( PreOutput != NULL )
     {
         SafeFree(PreOutput);
-        if( MainFile != NULL )
-        {
-            fclose(MainFile);
-        }
+        PreOutput = NULL;
+        PostOutput = NULL;
+    }
+    if( MainFile != NULL )
+    {
+        fclose(MainFile);
+        MainFile = NULL;
     }
     StringChunk_Free(&MainChunk, FALSE);
-    EFFECTIVE_LOCK_DESTROY(StatisticLock);
+    EFFECTIVE_LOCK_RELEASE(StatisticLock);
+
+    /* Do NOT destroy StatisticLock here.  DomainStatistic_Works() is a
+       persistent task scheduled on the TimedTask worker thread, and
+       TimedTask_Cleanup() (registered before this module, so it runs AFTER
+       this handler under atexit's LIFO order) is what joins that worker.  A
+       worker mid-way through DomainStatistic_Works() can therefore still be
+       about to take this lock after we released it; destroying the lock here
+       would let it lock freed/destroyed state (undefined behaviour).  This
+       matches the established shutdown convention in udpm.c / tcpm.c /
+       dynamichosts.c, which deliberately leave their locks intact for the OS
+       to reclaim at process exit. */
 }
 
 int DomainStatistic_Init(ConfigFileInfo *ConfigInfo)
@@ -286,7 +332,25 @@ int DomainStatistic_Init(ConfigFileInfo *ConfigInfo)
     }
 
     EFFECTIVE_LOCK_INIT(StatisticLock);
-    StringChunk_Init(&MainChunk, NULL);
+    if( StringChunk_Init(&MainChunk, NULL) != 0 )
+    {
+        EFFECTIVE_LOCK_DESTROY(StatisticLock);
+        if( MainFile != NULL )
+        {
+            fclose(MainFile);
+            MainFile = NULL;
+        }
+        if( PreOutput != NULL )
+        {
+            SafeFree(PreOutput);
+            PreOutput = NULL;
+            PostOutput = NULL;
+        }
+        return 4;
+    }
+
+    /* Only now may the atexit handler touch StatisticLock / MainChunk. */
+    StatisticInited = TRUE;
 
     InitTime_Num = time(NULL);
     SkipStatistic = FALSE;
@@ -307,12 +371,22 @@ int DomainStatistic_Add(IHeader *h, StatisticType Type)
 {
     DomainInfo *ExistInfo;
 
-    if( MainFile == NULL || h == NULL )
+    if( h == NULL )
     {
         return 0;
     }
 
+    /* Re-check MainFile/ToExit under the lock: DomainStatistic_Cleanup()
+       clears them while holding the same lock, so without this a request
+       thread that waited for the lock during cleanup could touch a freed
+       MainChunk afterwards. */
     EFFECTIVE_LOCK_GET(StatisticLock);
+
+    if( MainFile == NULL || ToExit )
+    {
+        EFFECTIVE_LOCK_RELEASE(StatisticLock);
+        return 0;
+    }
 
     if( SkipStatistic == FALSE )
     {

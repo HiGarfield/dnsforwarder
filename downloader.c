@@ -81,17 +81,25 @@ int GetFromInternet_MultiFiles(const char   **URLs,
         }
 
         fp = fopen(TempFile, "a+");
-        if( fp != NULL )
+        if( fp == NULL )
         {
-            /* `fputc` returns EOF on failure; ignoring it would silently leave
-               a record separator missing and join two unrelated entries. Check
-               both the write and fclose() (the latter can fail when the buffered
-               data is flushed to a now-full disk). */
-            if( fputc('\n', fp) == EOF || fclose(fp) != 0 )
-            {
-                break;
-            }
-        } else {
+            break;
+        }
+
+        /* `fputc` returns EOF on failure; ignoring it would silently leave
+           a record separator missing and join two unrelated entries. Check
+           both the write and fclose() (the latter can fail when the buffered
+           data is flushed to a now-full disk).  The file must be closed in
+           every path: the old `fputc(...) == EOF || fclose(...) != 0`
+           short-circuited and skipped fclose() when the write failed,
+           leaking one FILE descriptor per failing merge run. */
+        if( fputc('\n', fp) == EOF )
+        {
+            fclose(fp);
+            break;
+        }
+        if( fclose(fp) != 0 )
+        {
             break;
         }
 

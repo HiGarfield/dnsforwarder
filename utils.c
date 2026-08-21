@@ -532,9 +532,25 @@ int IPv6AddressToNum(const char *asc, void *Buffer)
     if( strstr(asc, "::") == NULL )
     {   /* full format */
         uint32_t a[8] = {0};
-        sscanf(asc, "%x:%x:%x:%x:%x:%x:%x:%x",
-                a, a + 1, a + 2, a + 3, a + 4, a + 5, a + 6, a + 7
-                );
+        int n = 0;
+
+        /* Require exactly eight hexadecimal groups.  The unchecked sscanf
+           silently accepted short literals such as "1:2:3" (filling the
+           missing trailing groups with zeros) and returned success, turning
+           malformed input into a "valid" address.  Check the conversion count
+           and, via %n, that only trailing whitespace follows the last group
+           (this also rejects "1:2:3:4:5:6:7:8:9"). */
+        if( sscanf(asc, "%x:%x:%x:%x:%x:%x:%x:%x%n",
+                   a, a + 1, a + 2, a + 3, a + 4, a + 5, a + 6, a + 7, &n
+                   )
+            != 8 ||
+            (asc[n] != '\0' && !isspace((unsigned char)asc[n]))
+            )
+        {
+            memset(Buffer, 0, 16);
+            return 0;
+        }
+
         SET_16_BIT_U_INT(buf_s, a[0]);
         SET_16_BIT_U_INT(buf_s + 1, a[1]);
         SET_16_BIT_U_INT(buf_s + 2, a[2]);

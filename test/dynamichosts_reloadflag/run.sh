@@ -36,4 +36,4 @@ if [ -z "${ASAN_OPTIONS:-}" ]; then
     ASAN_OPTIONS=detect_leaks=0
     export ASAN_OPTIONS
 fi
-timeout 15 "$Out"
+timeout 30 "$Out"

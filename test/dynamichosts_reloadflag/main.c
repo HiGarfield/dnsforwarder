@@ -20,6 +20,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <errno.h>
+#include <time.h>
 
 /* Headers used by dynamichosts.c -- included BEFORE the static-export trick
    so their own static declarations are left untouched. */
@@ -30,12 +32,42 @@
 #include "timedtask.h"
 #include "logs.h"
 
+/* Accurate millisecond sleep.  Do NOT use the SLEEP() macro here: it expands
+   to `usleep(ms) x 1000', and on kernels where usleep() is rounded up to the
+   timer tick (~3.4 ms per call on HZ=100/250 boxes) SLEEP(300) actually takes
+   ~3.6 s and SLEEP(10) ~3.4 s, blowing the test's timing budget and making
+   run.sh's `timeout` kill it at random.  A single nanosleep() is exact. */
+static void Msleep(int ms)
+{
+    struct timespec Ts;
+
+    Ts.tv_sec = ms / 1000;
+    Ts.tv_nsec = (long)(ms % 1000) * 1000000L;
+    while( nanosleep(&Ts, &Ts) != 0 && errno == EINTR )
+    {
+    }
+}
+
 /* ---- stubs for the download / post-download / host-lookup steps ----
    These use the real production symbol names (and are deliberately NOT
    static, matching the non-static declarations in the headers) because
    dynamichosts.c is compiled into this test binary. */
 
 static int  StubDownloadResult = 1; /* 1 = download failed (Bug #1 repro) */
+static volatile int StubAbortCalls = 0; /* set by the Downloader_Abort stub */
+
+/* Stubs for the shutdown-interrupt mechanism that DynamicHosts_Cleanup()
+   now invokes: the real downloader aborts a retry loop stuck on a failing
+   download (RetryTimes < 0); here we only count the calls so the test can
+   assert the cleanup aborts BEFORE waiting on Reloading. */
+void Downloader_Abort(void)
+{
+    ++StubAbortCalls;
+}
+
+void Downloader_AbortReset(void)
+{
+}
 
 int GetFromInternet_MultiFiles(const char **URLs,
                                       const char *File,
@@ -53,7 +85,7 @@ int GetFromInternet_MultiFiles(const char **URLs,
     /* Simulate a download that takes 300 ms: long enough for the main thread
        to observe Reloading == TRUE and start the cleanup wait, but short
        enough for the timeout-wrapped test to finish quickly. */
-    SLEEP(300);
+    Msleep(300);
 
     return StubDownloadResult;
 }
@@ -264,7 +296,7 @@ int main(void)
         int Waited = 0;
         while( Reloading == FALSE && Waited < 5000 )
         {
-            SLEEP(10);
+            Msleep(10);
             Waited += 10;
         }
         CHECK(Reloading == TRUE, "reload thread announced itself (Reloading==TRUE)");
@@ -272,6 +304,8 @@ int main(void)
 
     DynamicHosts_Cleanup();
     CHECK(TRUE, "DynamicHosts_Cleanup returned (no shutdown hang)");
+    CHECK(StubAbortCalls > 0,
+          "cleanup aborted the downloader before waiting on Reloading");
 
     pthread_join(Reloader, NULL);
     CHECK(Reloading == FALSE, "Reloading is FALSE after the thread finished");

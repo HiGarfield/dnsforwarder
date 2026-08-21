@@ -1045,25 +1045,29 @@ char *StrNpbrk(char *Str, const char *Ch)
 
 char *StrRNpbrk(char *Str, const char *Ch)
 {
-    char *LastCharacter;
+    size_t len;
 
     if( Str == NULL || Ch == NULL )
     {
         return Str;
     }
 
-    LastCharacter = Str + strlen(Str) - 1;
-
-    while( LastCharacter >= Str && strchr(Ch, *LastCharacter) != NULL )
+    /* Scan backwards with an index, not a pointer: the pointer version
+       computed `Str + strlen(Str) - 1` for an empty string, forming a
+       pointer one element before the start of the buffer (undefined
+       behaviour, C11 6.5.6p8). Same fix as EliminateFootSpace() in
+       readline.c. */
+    len = strlen(Str);
+    while( len > 0 && strchr(Ch, (unsigned char)Str[len - 1]) != NULL )
     {
-        --LastCharacter;
+        --len;
     }
 
-    if( LastCharacter <  Str )
+    if( len == 0 )
     {
         return NULL;
     } else {
-        return LastCharacter;
+        return Str + len - 1;
     }
 
 }

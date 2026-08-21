@@ -62,14 +62,19 @@ static void EliminateHeadSpace(char *str)
 
 static void EliminateFootSpace(char *str)
 {
-    char *End = str + strlen(str) - 1;
+    size_t len = strlen(str);
 
-    if( End >= str )
+    /* Walk backwards over trailing whitespace using an index instead of a
+       pointer: the pointer form computed `str + strlen(str) - 1` for an
+       empty string, forming a pointer one element before the buffer start
+       (undefined behaviour per C11 6.5.6p8, the same class of bug already
+       fixed in ClearAnnotation above). The loop never dereferences before
+       `str` and the result is identical. */
+    while( len > 0 && isspace((unsigned char)str[len - 1]) )
     {
-        for(; End >= str && isspace((unsigned char)*End); --End);
-        *(End + 1) = '\0';
+        --len;
     }
-
+    str[len] = '\0';
 }
 
 ReadLineStatus ReadLine(FILE *fp, char *Buffer, int BufferSize)

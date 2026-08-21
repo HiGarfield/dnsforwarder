@@ -285,6 +285,7 @@ Hosts_SocketLoop(void *Unused)
         {
             MsgContext *BackTraceMsgCtx;
             IHeader *BackTraceHeader;
+            uint16_t QueryIdentifier;
 
             TimeLimit = ShortTime;
 
@@ -303,6 +304,14 @@ Hosts_SocketLoop(void *Unused)
 
             BackTraceHeader = OuterHeader->Parent;
             BackTraceMsgCtx = (MsgContext *)BackTraceHeader;
+
+            /* Capture the original query identifier BEFORE
+               GenAnswerHeaderAndRemove() resets and deletes the back-trace
+               context: it unlinks the BST node (placing it on the free list),
+               so reading BackTraceHeader + 1 afterwards is a use of a deleted
+               object whose bytes may be recycled by the next Add. */
+            QueryIdentifier = DNSGetQueryIdentifier(BackTraceHeader + 1);
+
             if( Context.GenAnswerHeaderAndRemove(&Context, BackTraceMsgCtx, InnerMsgCtx) != 0 )
             {
                 /* The inner (recursed) context is gone -- it was swept after
@@ -312,7 +321,7 @@ Hosts_SocketLoop(void *Unused)
                 ERRORMSG("Fatal error 267.\n");
                 continue;
             }
-            DNSCopyQueryIdentifier(InnerHeader + 1, BackTraceHeader + 1);
+            DNSSetQueryIdentifier(InnerHeader + 1, QueryIdentifier);
 
             if( HostsUtils_CombineRecursedResponse((MsgContext *)InnerBuffer,
                                                    SOCKET_CONTEXT_LENGTH,

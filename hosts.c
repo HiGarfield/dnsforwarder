@@ -168,8 +168,11 @@ Hosts_SocketLoop(void *Unused)
 
     if( SocketPuller_Init(&Puller, 0) != 0 )
     {
-        ret = -423;
-        goto EXIT_1;
+        /* Puller is only partially initialized on failure (e.g. StableBuffer
+           inside the backing BST did not come up); do NOT run Puller.Free on
+           it. Hosts_Cleanup is also guarded by PullerReady, which is still
+           FALSE here, so nothing frees it later either. */
+        return -423;
     }
     PullerReady = TRUE;
 
@@ -341,7 +344,13 @@ Hosts_SocketLoop(void *Unused)
     return ret;
 
 EXIT_1:
+    /* Puller.Free() closes both sockets via CloseAll; clear the module-level
+       states so Hosts_Cleanup() (atexit) neither double-frees the puller
+       (it checks PullerReady) nor double-closes the sockets. */
     Puller.Free(&Puller);
+    PullerReady = FALSE;
+    InnerSocket = INVALID_SOCKET;
+    OuterSocket = INVALID_SOCKET;
 
     return ret;
 }

@@ -40,6 +40,15 @@ int GetFromInternet_MultiFiles(const char   **URLs,
     FILE    *fp;
     char    *TempFile;
 
+    /* An empty URL list must not run the merge loop: the temp file would stay
+       empty, AllSucceeded would remain TRUE, and rename() would then replace
+       the existing target file with a zero-byte file.  Fail up front and leave
+       the target untouched. */
+    if( URLs == NULL || URLs[0] == NULL )
+    {
+        return -1;
+    }
+
     TempFile = SafeMalloc(strlen(File) + sizeof(".tmp") + 1);
     if( TempFile == NULL )
     {

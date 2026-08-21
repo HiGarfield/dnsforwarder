@@ -183,6 +183,11 @@ static int InitListsAndTimes(ConfigFileInfo *ConfigInfo)
     if( StringChunk_Init(GoodIpList, NULL) != 0 )
     {
         SafeFree(GoodIpList);
+        /* Leave the pointer NULL so the atexit handler (registered by
+           GoodIpList_Init before this ran) skips the partially-initialised
+           chunk instead of enumerating / freeing it: use-after-free and
+           double-free on a failed-init shutdown path. */
+        GoodIpList = NULL;
         return -3;
     }
 
@@ -223,7 +228,14 @@ static int InitListsAndTimes(ConfigFileInfo *ConfigInfo)
             continue;
         }
 
-        StringChunk_Add(GoodIpList, n, (const char *)&m, sizeof(ListInfo));
+        if( StringChunk_Add(GoodIpList, n, (const char *)&m, sizeof(ListInfo)) != 0 )
+        {
+            /* The list was not registered; release the per-list heap buffer
+               (m.List.Data) that Cleanup otherwise frees, so an OOM here does
+               not leak it. */
+            ERRORMSG("GoodIpList out of memory : %s\n", Itr);
+            SafeFree(m.List.Data);
+        }
     }
 
     INFO("Loading GoodIPList completed.\n");

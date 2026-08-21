@@ -154,13 +154,18 @@ static int FilterDomain_InitFromFile(StringChunk **List, ConfigFileInfo *ConfigI
 
 static void FilterType_Cleanup(void)
 {
-    if(DisabledTypes != NULL)
-    {
-        DisabledTypes->Free(DisabledTypes);
-        free(DisabledTypes);
-    }
-
-    RWLock_Destroy(DisabledDomainLock);
+    /* Intentionally do NOT free DisabledTypes here.  IsDisabledType() reads
+       it without a lock, and atexit LIFO order runs this handler BEFORE
+       Modules_Cleanup() stops the module worker threads that call
+       Filter_Out()/IsDisabledType() on every query -- freeing the BST while
+       a worker is mid-Search would be a use-after-free at exit.  The OS
+       reclaims the memory when the process exits, so leaving it untouched
+       is safe and sufficient (same convention as dnscache.c). */
+    /* Intentionally do NOT destroy DisabledDomainLock here.  atexit LIFO
+       order runs this handler BEFORE Modules_Cleanup() stops the module
+       worker threads, and IsDisabledDomain() takes the read lock on every
+       query; locking a destroyed rwlock is undefined behaviour.  The lock
+       is reclaimed by the OS at process exit. */
 }
 
 static int FilterType_Init(ConfigFileInfo *ConfigInfo)
@@ -222,11 +227,25 @@ static int FilterType_Init(ConfigFileInfo *ConfigInfo)
 
 static void DisabledDomain_Cleanup(void)
 {
+    /* Take the write lock and NULL the pointer before freeing so that a
+       module worker thread inside IsDisabledDomain() (it holds the read
+       lock and is about to dereference DisabledDomain) either finishes
+       before the free (the lock serialises it) or, if it acquires the read
+       lock afterwards, sees NULL and returns FALSE.  The old code freed
+       without the lock and without NULLing the pointer, leaving a dangling
+       non-NULL pointer for any concurrent reader -- a use-after-free at
+       exit.  The lock itself is deliberately NOT destroyed: atexit LIFO
+       order runs this handler before Modules_Cleanup() stops the module
+       workers, and the OS reclaims the lock at process exit (see
+       FilterType_Cleanup). */
+    RWLock_WrLock(DisabledDomainLock);
     if( DisabledDomain != NULL )
     {
         StringChunk_Free(DisabledDomain, TRUE);
         SafeFree(DisabledDomain);
+        DisabledDomain = NULL;
     }
+    RWLock_UnWLock(DisabledDomainLock);
 }
 
 static int DisabledDomain_Init(ConfigFileInfo *ConfigInfo)
@@ -251,8 +270,15 @@ static int DisabledDomain_Init(ConfigFileInfo *ConfigInfo)
         INFO("Loading DisabledList completed.\n");
     }
 
+    /* Inline the old-container free here: DisabledDomain_Cleanup() now
+       takes the write lock itself, and the rwlock is not recursive, so
+       calling it from inside this critical section would deadlock. */
     RWLock_WrLock(DisabledDomainLock);
-    DisabledDomain_Cleanup();
+    if( DisabledDomain != NULL )
+    {
+        StringChunk_Free(DisabledDomain, TRUE);
+        SafeFree(DisabledDomain);
+    }
     DisabledDomain = TempDisabledDomain;
     RWLock_UnWLock(DisabledDomainLock);
 

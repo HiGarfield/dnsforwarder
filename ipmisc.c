@@ -196,8 +196,21 @@ static void IpMiscMapping_Free(IPMisc *ipMiscMapping)
 
 static void IpMiscMapping_Cleanup(void)
 {
+    /* Take the write lock and NULL the pointer before freeing so that a
+       module worker thread inside IPMiscMapping_Process() (it holds the
+       read lock and is about to call ->Process on the mapping) either
+       finishes before the free (the lock serialises it) or, if it acquires
+       the read lock afterwards, sees NULL and returns IP_MISC_NOTHING.  The
+       old code freed without the lock and then destroyed the lock, while
+       atexit LIFO order runs this handler BEFORE Modules_Cleanup() stops
+       the module worker threads -- a use-after-free and locking a destroyed
+       rwlock at exit.  The lock itself is deliberately NOT destroyed: it is
+       reclaimed by the OS at process exit (same convention as dnscache.c /
+       dynamichosts.c / domainstatistic.c). */
+    RWLock_WrLock(IpMiscMappingLock);
     IpMiscMapping_Free(CurrIpMiscMapping);
-    RWLock_Destroy(IpMiscMappingLock);
+    CurrIpMiscMapping = NULL;
+    RWLock_UnWLock(IpMiscMappingLock);
 }
 
 static int LoadIPSubstitutingFromFile(IPMisc *ipMiscMapping, const char *FilePath)

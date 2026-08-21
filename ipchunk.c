@@ -172,12 +172,14 @@ int IpSet_Parse(const char *s, const char *p, IpSet *ipSet)
 }
 
 
-static int Contain(IpElement *New, IpElement *Elm)
+static int Contain(const void *One, const void *Two)
 {
-    IpSet *ipSetNew = &(New->IpSet);
-    IpSet *ipSetElm = &(Elm->IpSet);
-    IpAddr *ipAddrNew = &(ipSetNew->Ip);
-    IpAddr *ipAddrElm = &(ipSetElm->Ip);
+    const IpElement *New = (const IpElement *)One;
+    const IpElement *Elm = (const IpElement *)Two;
+    const IpSet *ipSetNew = &(New->IpSet);
+    const IpSet *ipSetElm = &(Elm->IpSet);
+    const IpAddr *ipAddrNew = &(ipSetNew->Ip);
+    const IpAddr *ipAddrElm = &(ipSetElm->Ip);
     int BitsNew;
     int BitsElm;
 
@@ -194,8 +196,8 @@ static int Contain(IpElement *New, IpElement *Elm)
     {
         return  BitsNew - BitsElm;
     } else {
-        unsigned char *bn = ipAddrNew->Addr;
-        unsigned char *be = ipAddrElm->Addr;
+        const unsigned char *bn = ipAddrNew->Addr;
+        const unsigned char *be = ipAddrElm->Addr;
         int prefixBitsNew = ipSetNew->PrefixBits;
         int prefixBitsElm = ipSetElm->PrefixBits;
         /* Compare networks masked to the SHORTER of the two prefix lengths.
@@ -280,12 +282,16 @@ void IpChunk_Free(IpChunk *ic)
 
 int IpChunk_Init(IpChunk *ic)
 {
-    if( Bst_Init(&(ic->AddrChunk), sizeof(IpElement), (CompareFunc)Contain) != 0 )
+    /* Contain has the exact CompareFunc signature (const void *): the old
+       (CompareFunc) cast hid a function-pointer type mismatch that
+       -fsanitize=function flags as UB (every IpChunk_Find lookup through
+       Bst_Search used to trip it). */
+    if( Bst_Init(&(ic->AddrChunk), sizeof(IpElement), Contain) != 0 )
     {
         return -1;
     }
 
-    if( Bst_Init(&(ic->CidrChunk), sizeof(IpElement), (CompareFunc)Contain) != 0 )
+    if( Bst_Init(&(ic->CidrChunk), sizeof(IpElement), Contain) != 0 )
     {
         goto EXIT_1;
     }

@@ -537,7 +537,14 @@ int main(int argc, char *argv[])
         }
         atexit(CleanupConfigFile);
 
-        GetDefaultConfigureFile(ConfigFile, 320);
+        /* On failure GetDefaultConfigureFile empties ConfigFile; running on
+           an empty path would silently use a bogus working directory, so
+           abort with a clear message instead. */
+        if( GetDefaultConfigureFile(ConfigFile, 320) != 0 )
+        {
+            printf("Failed to locate the default configure file.\n");
+            return -265;
+        }
     }
 
     printf(DESCRIPTIONS);

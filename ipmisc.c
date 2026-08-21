@@ -413,12 +413,18 @@ int IPMiscMapping_Process(MsgContext *MsgCtx)
     IHeader *h = (IHeader *)MsgCtx;
     int ret;
 
+    /* Read the mapping pointer only under the read lock.  IpMiscMapping_Load
+       replaces it (and frees the old mapping) under the write lock, so a NULL
+       check or dereference outside the lock can race a reload: the compiler
+       may cache the pre-lock value and call ->Process on the freed mapping
+       (use-after-free). */
+    RWLock_RdLock(IpMiscMappingLock);
+
     if( CurrIpMiscMapping == NULL )
     {
+        RWLock_UnRLock(IpMiscMappingLock);
         return IP_MISC_NOTHING;
     }
-
-    RWLock_RdLock(IpMiscMappingLock);
 
     ret = CurrIpMiscMapping->Process(CurrIpMiscMapping,
                                    IHEADER_TAIL(h),

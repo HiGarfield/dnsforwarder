@@ -28,6 +28,25 @@
 #include "downloader.h"
 #include "logs.h"
 
+/* Set by Downloader_Abort() (invoked by DynamicHosts_Cleanup() at shutdown)
+   so a download stuck in an infinite retry loop (RetryTimes < 0) observes it
+   and returns instead of looping forever.  Without this, a persistently
+   failing download keeps the detached hosts-reload thread inside
+   GetFromInternet_SingleFile() for ever, Reloading stays TRUE and the
+   cleanup's `while(Reloading) SLEEP(10)' spins forever, hanging process
+   exit. */
+static volatile BOOL Downloader_Aborted = FALSE;
+
+void Downloader_Abort(void)
+{
+    Downloader_Aborted = TRUE;
+}
+
+void Downloader_AbortReset(void)
+{
+    Downloader_Aborted = FALSE;
+}
+
 int GetFromInternet_MultiFiles(const char   **URLs,
                                const char   *File,
                                int          RetryInterval,
@@ -69,7 +88,7 @@ int GetFromInternet_MultiFiles(const char   **URLs,
         return -2;
     }
 
-    while( *URLs != NULL )
+    while( *URLs != NULL && !Downloader_Aborted )
     {
         if( GetFromInternet_SingleFile(*URLs, TempFile, TRUE, RetryInterval, RetryTimes, ErrorCallBack, SuccessCallBack) != 0 )
         {
@@ -78,6 +97,13 @@ int GetFromInternet_MultiFiles(const char   **URLs,
                We still try the remaining URLs to surface as many errors as
                possible, but the final commit is suppressed below. */
             AllSucceeded = FALSE;
+        }
+
+        /* An abort (shutdown) requested while a URL was being downloaded must
+           also stop iterating over the remaining URLs. */
+        if( Downloader_Aborted )
+        {
+            break;
         }
 
         fp = fopen(TempFile, "a+");
@@ -181,7 +207,7 @@ int GetFromInternet_SingleFile(const char   *URL,
         strcpy(TempFile, File);
         strcat(TempFile, ".tmp");
 
-        while( RetryTimes != 0 )
+        while( RetryTimes != 0 && !Downloader_Aborted )
         {
             int DownloadState = 0;
 
@@ -215,6 +241,15 @@ int GetFromInternet_SingleFile(const char   *URL,
                 if( ErrorCallBack != NULL )
                 {
                     ErrorCallBack((-1) * DownloadState, URL, File);
+                }
+
+                /* Abort check BEFORE the retry sleep as well, so a shutdown
+                   requested while a download is failing can still interrupt
+                   the retry loop promptly instead of sleeping the full retry
+                   interval first. */
+                if( Downloader_Aborted )
+                {
+                    break;
                 }
 
                 SLEEP(RetryInterval * 1000);

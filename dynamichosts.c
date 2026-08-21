@@ -49,6 +49,16 @@ static void DynamicHosts_Cleanup(void)
 {
     ToExit = TRUE;
 
+    /* Abort an in-flight download that may be stuck in its infinite retry
+       loop (GetFromInternet_MultiFiles is called with RetryTimes == -1).
+       Without this, a persistently failing download keeps the reload thread
+       inside GetFromInternet_SingleFile() forever: it never clears Reloading,
+       and the `while(Reloading) SLEEP(10)' wait below spins forever, hanging
+       process exit.  Downloader_Abort() makes the retry loop bail out on its
+       next iteration (before another attempt and before sleeping for the
+       retry interval). */
+    Downloader_Abort();
+
     /* Wait until no reload thread is inside the download/update path.  A
        reload thread that already passed its ToExit checks could otherwise
        keep running Filter_Update() / IpMiscMapping_Update() / Modules_Update()

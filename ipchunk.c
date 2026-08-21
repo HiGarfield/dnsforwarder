@@ -131,6 +131,18 @@ int IpSet_Parse(const char *s, const char *p, IpSet *ipSet)
 
     L = IpAddr_BitLength(ipAddr);
 
+    /* A query key built by IpChunk_Find from raw DNS answer bytes never
+       carries a scope zone (RFC 6874), so an entry that keeps its zone can
+       never compare equal to a query key and is silently dead.  Strip the
+       zone for every IPv6 entry, single-IP and CIDR alike.  The old code
+       stripped it only for prefixed entries, so a zone-qualified single IP
+       (e.g. "fe80::1%eth0") was stored with its zone and never matched any
+       query, while the prefixed form (zone stripped) did match. */
+    if( IpAddr_Is6(ipAddr) )
+    {
+        ipSet->Ip.Zone = Z6noz;
+    }
+
     if( p != NULL && *p )
     {
         n = atoi(p);
@@ -142,11 +154,6 @@ int IpSet_Parse(const char *s, const char *p, IpSet *ipSet)
         }
 
         L = n;
-        if( IpAddr_Is6(ipAddr) )
-        {
-            ipSet->Ip.Zone = Z6noz;
-            L += 10;
-        }
         if( L < 16 )
         {
             int i = 0;

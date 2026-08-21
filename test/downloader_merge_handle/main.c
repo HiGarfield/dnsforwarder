@@ -198,13 +198,14 @@ int main(void)
     snprintf(Dst, sizeof(Dst), "/tmp/dnsf_dl_merge_dst_%ld", (long)getpid());
     snprintf(Url, sizeof(Url), "file://%s", Src);
 
-    /* Source file: exactly Limit bytes, so after the copy the temp file sits
-       at the size limit and the separator newline is the byte that trips
-       EFBIG. */
+    /* Start with a small source file (64 bytes): the warm-up merge below must
+       commit successfully, so it must NOT trip RLIMIT_FSIZE.  It is grown to
+       exactly Limit bytes afterwards, when the temp file copy then sits at the
+       size limit and the separator newline is the byte that trips EFBIG. */
     {
         FILE *fp = fopen(Src, "w");
         char  Line[4096];
-        size_t Left = (size_t)Limit;
+        size_t Left = 64;
 
         if( fp == NULL )
         {
@@ -233,17 +234,53 @@ int main(void)
     URLs[0] = Url;
     URLs[1] = NULL;
 
-    /* Warm-up run (also proves the merge loop still commits). */
+    /* Warm-up run: proves the merge loop still commits on the normal path
+       (fits under RLIMIT_FSIZE).  The run must also report success: after the
+       Round-9 fix, a separator write that fails (EFBIG, disk full) must NOT be
+       committed silently, and this warm-up does not hit that condition. */
     if( GetFromInternet_MultiFiles(URLs, Dst, 0, 1, OnError, OnSuccess) != 0 )
     {
         printf("FAIL: warm-up merge run returned an error\n");
         return 8;
     }
-    if( stat(Dst, &St) != 0 || St.st_size != Limit )
+    /* The merge appends a one-byte '\n' record separator after each URL's
+       data, so the committed target holds 64 + 1 = 65 bytes. */
+    if( stat(Dst, &St) != 0 || St.st_size != 65 )
     {
-        printf("FAIL: merged target has wrong size (got %lld, want %ld)\n",
-               (long long)(St.st_size != 0 ? St.st_size : -1), Limit);
+        printf("FAIL: merged target has wrong size (got %lld, want 65)\n",
+               (long long)(St.st_size != 0 ? St.st_size : -1));
         return 9;
+    }
+
+    /* Grow the source to exactly Limit bytes so the failing runs below trip
+       EFBIG on the separator newline. */
+    {
+        FILE *fp = fopen(Src, "a");
+        char  Line[4096];
+        size_t Left = (size_t)Limit - 64;
+
+        if( fp == NULL )
+        {
+            printf("FAIL: cannot grow source file\n");
+            return 9;
+        }
+        memset(Line, 'y', sizeof(Line));
+        while( Left > 0 )
+        {
+            size_t n = Left > sizeof(Line) ? sizeof(Line) : Left;
+            if( fwrite(Line, 1, n, fp) != n )
+            {
+                printf("FAIL: cannot grow source file\n");
+                fclose(fp);
+                return 9;
+            }
+            Left -= n;
+        }
+        if( fclose(fp) != 0 )
+        {
+            printf("FAIL: close grown source file\n");
+            return 9;
+        }
     }
 
     Before = CountFds();

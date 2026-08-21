@@ -109,6 +109,9 @@ int GetFromInternet_MultiFiles(const char   **URLs,
         fp = fopen(TempFile, "a+");
         if( fp == NULL )
         {
+            /* The merge output is now incomplete; without this the commit
+               below would rename a partial merge over the good target file. */
+            AllSucceeded = FALSE;
             break;
         }
 
@@ -122,10 +125,14 @@ int GetFromInternet_MultiFiles(const char   **URLs,
         if( fputc('\n', fp) == EOF )
         {
             fclose(fp);
+            AllSucceeded = FALSE;
             break;
         }
         if( fclose(fp) != 0 )
         {
+            /* A flush failure means the merge result is incomplete on disk;
+               do not commit it. */
+            AllSucceeded = FALSE;
             break;
         }
 
@@ -252,7 +259,14 @@ int GetFromInternet_SingleFile(const char   *URL,
                     break;
                 }
 
-                SLEEP(RetryInterval * 1000);
+                /* The retry counter is decremented above, so when it reached
+                   zero this was the final attempt: sleeping the full interval
+                   now would only delay the caller (and shutdown) for nothing,
+                   since the loop exits right after. */
+                if( RetryTimes != 0 )
+                {
+                    SLEEP(RetryInterval * 1000);
+                }
             }
         }
 

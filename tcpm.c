@@ -206,7 +206,18 @@ static int TcpM_Connect(TcpM *m, int ServerIndex, BOOL IsProxy)
 
     TcpM_Connect_Recycle(Puller, Pullers, NumOfServers);
 
-    srand(time(NULL));
+    /* Seed the PRNG only once (same rationale as stringchunk.c): seeding on
+       every call re-initializes the sequence with the same second-resolution
+       value, so all connections made within one second pick the same Shift
+       and upstream rotation collapses to a fixed choice. */
+    {
+        static BOOL Seeded = FALSE;
+        if( Seeded == FALSE )
+        {
+            srand((unsigned int)time(NULL));
+            Seeded = TRUE;
+        }
+    }
     Shift = rand();
 
     idx = ServerIndex;
@@ -780,8 +791,8 @@ TcpM_Works(TcpM *m)
             }
 
             State = recvfrom(s,
-                             ReceiveBuffer, /* Receiving a header */
-                             SOCKET_CONTEXT_LENGTH,
+                             Entity, /* Receiving the DNS payload, as UdpFrontend_Work does */
+                             LEFT_LENGTH,
                              0,
                              NULL,
                              NULL
@@ -808,8 +819,8 @@ TcpM_Works(TcpM *m)
                    answer could never be returned to the client. */
                 if( IHeader_Fill(Header,
                                  FALSE,
-                                 ReceiveBuffer + sizeof(IHeader),
-                                 State - (int)sizeof(IHeader),
+                                 Entity,
+                                 State,
                                  (const struct sockaddr *)&(m->IncomingAddr.Addr),
                                  m->Incoming,
                                  m->IncomingAddr.family,

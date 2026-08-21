@@ -43,8 +43,10 @@ static PIPE_HANDLE  WriteTo, ReadFrom;
    The actual wake-up of the worker is done with the self-pipe, not by this
    flag. */
 static BOOL             TimedTask_ToExit = FALSE;
-/* Protects TimedTask_ToExit; initialised in TimedTask_Init, destroyed in
-   TimedTask_Cleanup. */
+/* Protects TimedTask_ToExit; initialised in TimedTask_Init and deliberately
+   NOT destroyed in TimedTask_Cleanup: TimedTask_Add() is a public API that
+   any thread may call, and locking a destroyed mutex is undefined behaviour.
+   The process is exiting anyway, so the OS reclaims the (heap-free) mutex. */
 static MutexHandle      TimedTask_ExitMutex;
 /* Becomes TRUE only after every resource TimedTask_Cleanup touches has been
    successfully created.  Guarding Cleanup with it prevents the atexit-registered
@@ -495,6 +497,21 @@ int TimedTask_Add(BOOL Persistent,
         return -212;
     }
 #else /* _WIN32 */
+    /* Serialize the shutdown check with TimedTask_Cleanup().  Cleanup sets
+       TimedTask_ToExit under the same mutex and only afterwards closes
+       WriteTo, so an Add that observes ToExit here can never write() to a
+       descriptor Cleanup has already closed -- a TOCTOU that could, after fd
+       reuse, target an unrelated open file/socket.  The mutex is released
+       before the (potentially blocking) pipe write so a full pipe cannot
+       wedge the worker, which takes the same mutex at the top of its loop. */
+    GET_MUTEX(TimedTask_ExitMutex);
+    if( TimedTask_ToExit )
+    {
+        RELEASE_MUTEX(TimedTask_ExitMutex);
+        return -53;
+    }
+    RELEASE_MUTEX(TimedTask_ExitMutex);
+
     if( WRITE_PIPE(WriteTo, &i, sizeof(TaskInfo)) < 0 )
     {
         return -53;
@@ -556,7 +573,13 @@ static void TimedTask_Cleanup(void)
     close(WriteTo);
 #endif /* _WIN32 */
 
-    DESTROY_MUTEX(TimedTask_ExitMutex);
+    /* Do NOT destroy TimedTask_ExitMutex.  TimedTask_Add() is a public API
+       that any module thread may call; after this handler runs (it is the
+       last atexit handler) a detached thread could still be alive and would
+       lock() a destroyed mutex -- undefined behaviour.  The process is
+       exiting and the OS reclaims the (heap-free) pthread_mutex_t, so
+       leaving it undestroyed is the safe choice, matching the shutdown
+       convention in tcpfrontend.c / udpfrontend.c. */
 }
 
 int TimedTask_Init(void)

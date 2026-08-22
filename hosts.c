@@ -1,3 +1,4 @@
+#include <string.h>
 #include "hosts.h"
 #include "addresslist.h"
 #include "mcontext.h"
@@ -26,6 +27,12 @@ static SOCKET           OuterSocket = INVALID_SOCKET;
    failed before reaching it). */
 static volatile BOOL    PullerReady = FALSE;
 
+/* Query identifier of the single outer query currently in flight.  It is set
+   right before MMgr_Send() and the response is only accepted when its own
+   identifier matches, so a stray/replayed/unsolicited datagram can never be
+   matched to the pending context. */
+static uint16_t OuterQueryIdentifier = 0;
+
 BOOL Hosts_TypeExisting(const char *Domain, HostsRecordType Type)
 {
     return StaticHosts_TypeExisting(Domain, Type) ||
@@ -49,6 +56,23 @@ static int Hosts_GetCName(const char *Domain, char *Buffer)
 {
     return !(StaticHosts_GetCName(Domain, Buffer) == 0 ||
            DynamicHosts_GetCName(Domain, Buffer) == 0);
+}
+
+/* Called by ModuleContext_Sweep() right before it deletes a timed-out
+   context.  If that context is the one OuterHeader->Parent currently points
+   at (i.e. the outer query is still in flight while its back-trace context
+   expired), clear the pointer: a response arriving later must be dropped
+   rather than dereferenced through the about-to-be-recycled BST node. */
+static void Hosts_SweepCallback(const MsgContext *MsgCtx, int Number, void *Arg)
+{
+    IHeader *OuterHeader = (IHeader *)Arg;
+
+    (void)Number;
+
+    if( OuterHeader != NULL && OuterHeader->Parent == (IHeader *)MsgCtx )
+    {
+        OuterHeader->Parent = NULL;
+    }
 }
 
 HostsUtilsTryResult Hosts_Try(MsgContext *MsgCtx, int BufferLength)
@@ -154,7 +178,6 @@ Hosts_SocketLoop(void *Unused)
     char OuterBuffer[SOCKET_CONTEXT_LENGTH];
     /* MsgContext *OuterMsgCtx = (MsgContext *)OuterBuffer; */
     IHeader *OuterHeader = (IHeader *)OuterBuffer;
-    char    *OuterEntity = OuterBuffer + sizeof(IHeader);
 
     int State;
     int ret = 0;
@@ -187,6 +210,15 @@ Hosts_SocketLoop(void *Unused)
 
     srand(time(NULL));
 
+    /* OuterBuffer is a shared stack buffer.  The response datagram is
+       recvfrom()'d over the beginning of it (overwriting the IHeader
+       stored there), so the fields that identify the pending query must be
+       captured before that overwrite.  Start with a NULL Parent so an
+       unsolicited datagram is never matched to a stale/uninitialised
+       pointer. */
+    OuterHeader->Parent = NULL;
+    OuterQueryIdentifier = 0;
+
     while( TRUE )
     {
         SOCKET  Pulled;
@@ -215,7 +247,7 @@ Hosts_SocketLoop(void *Unused)
                 break;
             }
             TimeLimit = LongTime;
-            Context.Sweep(&Context, NULL, NULL);
+            Context.Sweep(&Context, Hosts_SweepCallback, (void *)OuterBuffer);
         } else if( Pulled == InnerSocket )
         {
             /* Recursive query */
@@ -278,16 +310,31 @@ Hosts_SocketLoop(void *Unused)
             }
 
             OuterHeader->Parent = (IHeader *)MsgCtxStored;
+            OuterQueryIdentifier = NewIdentifier;
 
             MMgr_Send(OuterBuffer, SOCKET_CONTEXT_LENGTH);
 
         } else if( Pulled == OuterSocket )
         {
-            MsgContext *BackTraceMsgCtx;
             IHeader *BackTraceHeader;
+            MsgContext *BackTraceMsgCtx;
+            char RecursedDomain[DOMAIN_NAME_LENGTH_MAX + 1];
             uint16_t QueryIdentifier;
 
             TimeLimit = ShortTime;
+
+            /* Everything that identifies the pending query -- the parent
+               context pointer and the recursed domain -- lives inside
+               OuterBuffer, which the recvfrom() below is about to overwrite
+               with the response.  Capture them BEFORE the receive: a
+               datagram long enough to reach the Parent/Domain fields would
+               otherwise hand bytes of the response (or, if nothing was ever
+               sent, uninitialised stack memory) to be dereferenced as a
+               pointer and parsed as a domain name. */
+            BackTraceHeader = OuterHeader->Parent;
+            BackTraceMsgCtx = (MsgContext *)BackTraceHeader;
+            strncpy(RecursedDomain, OuterHeader->Domain, sizeof(RecursedDomain) - 1);
+            RecursedDomain[sizeof(RecursedDomain) - 1] = '\0';
 
             State = recvfrom(OuterSocket,
                              OuterBuffer, /* Receiving a header */
@@ -302,8 +349,27 @@ Hosts_SocketLoop(void *Unused)
                 continue;
             }
 
-            BackTraceHeader = OuterHeader->Parent;
-            BackTraceMsgCtx = (MsgContext *)BackTraceHeader;
+            if( BackTraceHeader == NULL )
+            {
+                /* No query is in flight (nothing was ever sent, or the
+                   pending context was swept after its timeout): this
+                   datagram cannot be matched to a live context, so drop it
+                   instead of dereferencing a stale pointer. */
+                continue;
+            }
+
+            /* The response datagram overwrote OuterBuffer's beginning.  Its
+               query identifier must equal the one we put into the outer
+               query, otherwise this is a stray/replayed/unsolicited packet
+               that must not consume the pending context.  State is checked
+               against DNS_HEADER_LENGTH so the two identifier octets are
+               guaranteed to have been received. */
+            if( State < DNS_HEADER_LENGTH ||
+                DNSGetQueryIdentifier(OuterBuffer) != OuterQueryIdentifier
+                )
+            {
+                continue;
+            }
 
             /* Capture the original query identifier BEFORE
                GenAnswerHeaderAndRemove() resets and deletes the back-trace
@@ -319,15 +385,29 @@ Hosts_SocketLoop(void *Unused)
                    touch BackTraceHeader any further (it may have been reset /
                    recycled); just drop the response. */
                 ERRORMSG("Fatal error 267.\n");
+                OuterHeader->Parent = NULL;
+                OuterQueryIdentifier = 0;
                 continue;
             }
+
+            /* The back-trace context is now removed from the BST.  Clear the
+               parent slot so a later (replayed) response is dropped instead
+               of dereferencing the deleted node. */
+            OuterHeader->Parent = NULL;
+            OuterQueryIdentifier = 0;
             DNSSetQueryIdentifier(InnerHeader + 1, QueryIdentifier);
 
+            /* The response was recvfrom()'d into the *beginning* of
+               OuterBuffer (OuterBuffer[0 .. State)); the former `OuterEntity'
+               argument pointed at the stale query we sent, not at the
+               response.  Use OuterBuffer so the recursed response is actually
+               parsed, and the pre-captured RecursedDomain (not the bytes of
+               the response, which may have overwritten OuterHeader->Domain). */
             if( HostsUtils_CombineRecursedResponse((MsgContext *)InnerBuffer,
                                                    SOCKET_CONTEXT_LENGTH,
-                                                   OuterEntity,
+                                                   OuterBuffer,
                                                    State,
-                                                   OuterHeader->Domain
+                                                   RecursedDomain
                                                    )
                 != 0 )
             {

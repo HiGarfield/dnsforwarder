@@ -1,16 +1,16 @@
 #!/bin/sh
-# Build and run the mmgr uninitialized-module regression tests.
+# Build and run the mmgr partial group-file reload failure regression tests.
 #
 # Usage:
-#   sh test/mmgr_storeamodule/run.sh
-#   CC=clang CFLAGS="-fsanitize=address,undefined" sh test/mmgr_storeamodule/run.sh
+#   sh test/mmgr_load_failure/run.sh
+#   CC=clang CFLAGS="-fsanitize=address,undefined" sh test/mmgr_load_failure/run.sh
 set -e
 
 Root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-Out=${TMPDIR:-/tmp}/dnsforwarder_test_mmgr_storeamodule
+Out=${TMPDIR:-/tmp}/dnsforwarder_test_mmgr_load_failure
 
 Sources="
-$Root/test/mmgr_storeamodule/main.c
+$Root/test/mmgr_load_failure/main.c
 $Root/stringchunk.c
 $Root/simpleht.c
 $Root/stablebuffer.c
@@ -40,4 +40,12 @@ if [ -z "${ASAN_OPTIONS:-}" ]; then
     ASAN_OPTIONS=detect_leaks=0
     export ASAN_OPTIONS
 fi
-"$Out"
+
+# The pre-fix build hangs here (the worker thread spins on freed memory, or
+# Modules_SafeCleanup spins on the uninitialized lock); a timeout turns that
+# hang into a failure so the bug stays detectable in CI.
+if command -v timeout >/dev/null 2>&1; then
+    timeout 30 "$Out"
+else
+    "$Out"
+fi

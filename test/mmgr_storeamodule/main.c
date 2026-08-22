@@ -136,6 +136,12 @@ int main(void)
 
     printf("== mmgr StoreAModule / Send==NULL regression tests ==\n\n");
 
+    /* MMgr_Send() takes ModulesLock; in production MMgr_Init() initializes it.
+       Without this the read lock hits an uninitialized CRITICAL_SECTION on
+       Win32 (crash) -- a zeroed pthread rwlock merely happens to work on
+       Linux. */
+    RWLock_Init(ModulesLock);
+
     memset(&mm, 0, sizeof(mm));
 
     expect("InitChunk allocates the Distributor",

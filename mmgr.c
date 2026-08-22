@@ -632,6 +632,19 @@ Modules_SafeCleanup(ModuleMap *ModuleMap)
             BytesOfMetaInfo = BI.CurrentBlockUsed(&BI);
             for( i = 0; i * (int)sizeof(ModuleInterface) < (int)BytesOfMetaInfo; ++i, ++M )
             {
+                /* A module whose constructor failed (UdpM_Init / TcpM_Init
+                 * returned non-zero) never started its worker threads and
+                 * never initialized its lock; StoreAModule left its Send
+                 * NULL.  Such entries only exist when Modules_Load() bails out
+                 * after a partial group-file load and runs this routine on the
+                 * half-built map.  Touching their lock / thread handles would
+                 * be undefined behaviour (uninitialized spin lock, garbage
+                 * thread ids), so skip them. */
+                if( M->Send == NULL )
+                {
+                    continue;
+                }
+
                 if( strcmp(M->ModuleName, "UDP") == 0 )
                 {
                     /* Clear IsServer and read the thread handles under the
@@ -784,7 +797,25 @@ static int Modules_Load(ConfigFileInfo *ConfigInfo)
     return 0;
 
 ModulesFree:
-    Modules_Free(NewModuleMap);
+    if( NewModuleMap->Modules != NULL )
+    {
+        /* Some groups may already have been created before a later group
+         * failed, and their worker threads (UdpM_Works / UdpM_Sweep_Thread /
+         * TcpM_Works) are still running.  A bare Modules_Free() would free
+         * those instances -- including the spin lock every worker acquires on
+         * each loop iteration -- out from under the threads: use-after-free
+         * on the module lock / context / pullers.  Modules_SafeCleanup()
+         * clears IsServer so each started worker exits, waits for the thread
+         * handles to be nulled, drains in-flight MMgr_Send readers via the
+         * ModulesLock barrier, and only then frees the map.  Entries whose
+         * constructor failed (Send == NULL) are skipped because they never
+         * started a thread. */
+        Modules_SafeCleanup(NewModuleMap);
+    }
+    else
+    {
+        Modules_Free(NewModuleMap);
+    }
     INFO("Loading GroupFile(s) failed.\n");
     return ret;
 }

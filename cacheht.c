@@ -226,6 +226,56 @@ BOOL CacheHT_IsStructureSane(const CacheHT *h,
         }
     }
 
+    /* The per-node check above bounds Node->Slot by Slots->Used, which is the
+       correct bound for a node living on a slot chain but the wrong one for a
+       node on the free 2D list: there the same memory is overlaid with
+       Cht_2DList, whose offset-0 field (overlaying Cht_Node.Slot) is
+       `KeyNext' -- a NodeChunk subscript, not a slot subscript.  A corrupted
+       KeyNext in [NodeChunk->Used, Slots->Used) slips past the generic Slot
+       check; when the cache is next used, CacheHT_FindUnusedNode() /
+       CacheHT_AddTo2DList() walk the free list through that KeyNext, call
+       Array_GetBySubscript() with it, get NULL back and dereference it,
+       crashing on a merely-corrupted cache file.  Walk the free list
+       explicitly: every hop must name a real node (KeyNext and ValNext
+       alike) and the chain must terminate before it can cycle. */
+    {
+        int hops = 0;
+        int sub = h->Free2DList;
+
+        while( sub >= 0 )
+        {
+            const Cht_Node *N;
+
+            /* A valid chain visits each node at most once; more hops than
+               nodes means a cycle. */
+            if( ++hops > NodeChunk->Used )
+            {
+                return FALSE;
+            }
+
+            if( sub >= NodeChunk->Used )
+            {
+                /* KeyNext names a node the chunk does not hold. */
+                return FALSE;
+            }
+
+            N = (const Cht_Node *)(NodeBase - sizeof(Cht_Node) * (size_t)sub);
+
+            /* KeyNext (overlaid on Node->Slot) and ValNext (overlaid on
+               Node->Next) must both name real nodes or terminate the chain.
+               ValNext additionally holds for a node that is not (yet) reachable
+               from Free2DList but would become so later, so requiring both to
+               stay inside the chunk is the safe bound. */
+            if( N->Slot < -1 || N->Slot >= NodeChunk->Used ||
+                N->Next < -1 || N->Next >= NodeChunk->Used )
+            {
+                return FALSE;
+            }
+
+            sub = N->Slot;  /* follow KeyNext */
+        }
+    }
+
     return TRUE;
 }
 

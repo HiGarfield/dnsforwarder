@@ -440,6 +440,41 @@ int main(void)
         expect("the dense image really is dense", c.NodeChunk.Used > 100);
     }
 
+    /* ---- 17. Free-2D-list KeyNext in [NodeChunk.Used, Slots.Used) -----
+       A node on the free 2D list stores its chain successor in the field that
+       Cht_Node.Slot overlays (offset 0 = Cht_2DList.KeyNext), but the per-node
+       check bounds that field by Slots->Used -- correct for a slot-chain node,
+       wrong for a free-list node, whose KeyNext is a NodeChunk subscript.  A
+       corrupted KeyNext in [NodeChunk.Used, Slots.Used) therefore slips past
+       the validator; when the cache is next used, CacheHT_FindUnusedNode() /
+       CacheHT_AddTo2DList() walk the free list through that KeyNext, call
+       Array_GetBySubscript() with it, get NULL back and dereference it,
+       crashing on a merely-corrupted cache file. */
+    printf("Corrupted free-2D-list KeyNext (in [NodeChunk.Used, Slots.Used))\n");
+    {
+        CacheHT c;
+        Cht_Node *n;
+        int bogus;
+
+        BuildValidImage(Map, &c, &End, 24);
+        if( c.Slots.Used > c.NodeChunk.Used )
+        {
+            /* A NodeChunk subscript that is legal for the generic Slot check
+               (below Slots->Used) but not backed by the node chunk. */
+            bogus = (c.NodeChunk.Used + c.Slots.Used) / 2;
+            n = NodeAt(Map, CACHE_SIZE, c.Slots.Used, c.NodeChunk.Used - 1);
+            n->Slot = bogus;          /* becomes KeyNext when the node is freed */
+            c.Free2DList = c.NodeChunk.Used - 1;
+            expect("a free-list KeyNext past the node chunk is rejected",
+                   Validate(&c, Map, End) == FALSE);
+        }
+        else
+        {
+            expect("(skip: node chunk at least as large as the slot table)",
+                   TRUE);
+        }
+    }
+
     (void)SlotsUsed;
     free(Map);
 

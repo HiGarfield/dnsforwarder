@@ -38,16 +38,26 @@ if start is None:
     print('  [FAIL] NewModuleMap allocation not found; test is stale')
     sys.exit(1)
 
-# The zeroing must sit between the allocation and the first `goto ModulesFree`.
-window = '\n'.join(lines[start:start + 12])
-if 'memset(NewModuleMap, 0, sizeof(ModuleMap))' not in window:
+# Locate the zeroing and the first failure branch; the zeroing must precede it.
+memset_pos = next((n for n in range(start, min(start + 25, len(lines)))
+                   if 'memset(NewModuleMap, 0, sizeof(ModuleMap))' in lines[n]),
+                  None)
+if memset_pos is None:
     print('  [FAIL] NewModuleMap is not zeroed after allocation '
           '(garbage Modules/ModuleArray dereferenced on the OOM path)')
     sys.exit(1)
-if 'goto ModulesFree' in window:
+
+goto_pos = next((n for n in range(start, min(start + 40, len(lines)))
+                 if 'goto ModulesFree' in lines[n]), None)
+if goto_pos is None:
+    print('  [FAIL] the ModulesFree failure label is not reached after the '
+          'allocation; test is stale')
+    sys.exit(1)
+if memset_pos > goto_pos:
     print('  [FAIL] a failure branch is reachable before the memset')
     sys.exit(1)
-print('  [ ok ] NewModuleMap is zeroed before any failure branch')
+print('  [ ok ] NewModuleMap is zeroed before any failure branch '
+      '(memset line %d, first goto line %d)' % (memset_pos + 1, goto_pos + 1))
 sys.exit(0)
 PY
 

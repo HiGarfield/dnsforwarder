@@ -60,12 +60,18 @@ static ThreadHandle     TimedTask_Worker = NULL_THREAD;
 #ifndef _WIN32
 static int Tv_Comapre(const struct timeval *one, const struct timeval *two)
 {
-    if( one->tv_sec == two->tv_sec )
+    /* A plain subtraction is undefined behaviour for large time deltas (signed
+       long overflow) and reverses the sign past LONG_MAX, breaking the
+       strict-weak-ordering the ordered queue relies on. Compare explicitly. */
+    if( one->tv_sec != two->tv_sec )
     {
-        return one->tv_usec - two->tv_usec;
-    } else {
-        return one->tv_sec - two->tv_sec;
+        return (one->tv_sec < two->tv_sec) ? -1 : 1;
     }
+    if( one->tv_usec != two->tv_usec )
+    {
+        return (one->tv_usec < two->tv_usec) ? -1 : 1;
+    }
+    return 0;
 }
 
 static int Tv_Subtract(struct timeval *Minuend,
@@ -525,7 +531,14 @@ static int Compare(const void *One, const void *Two)
 {
     const TaskInfo *o = One, *t = Two;
 #ifdef _WIN32
-    return o->LeftTime - t->LeftTime;
+    /* A plain subtraction (DWORD is 32-bit unsigned) is undefined behaviour for
+       deltas above INT_MAX milliseconds (~24.8 days) and breaks the
+       strict-weak-ordering the queue relies on. Compare explicitly. */
+    if( o->LeftTime != t->LeftTime )
+    {
+        return (o->LeftTime < t->LeftTime) ? -1 : 1;
+    }
+    return 0;
 #else /* _WIN32 */
     return Tv_Comapre(&(o->LeftTime), &(t->LeftTime));
 #endif /* _WIN32 */

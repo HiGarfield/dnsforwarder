@@ -18,7 +18,18 @@ static ConfigFileInfo *CurrConfigInfo = NULL;
 
 static int TypeCompare(const void *_1, const void *_2)
 {
-    return *(const int *)_1 - *(const int *)_2;
+    /* A plain subtraction (a - b) is undefined behaviour for large int values
+       (signed integer overflow) and, worse, reverses the sign for deltas that
+       exceed INT_MAX, which breaks the strict-weak-ordering a BST relies on:
+       Bst_Find/Insert would then misplace or lose entries and the disabled-type
+       check would silently fail to match.  Compare explicitly instead, exactly
+       like ModuleContextCompare / socketpool::Compare / dnsrelated::Compare. */
+    int a = *(const int *)_1;
+    int b = *(const int *)_2;
+
+    if( a < b ) return -1;
+    if( a > b ) return 1;
+    return 0;
 }
 
 static int InitBst(Bst **t, int (*CompareFunc)(const void *, const void *))

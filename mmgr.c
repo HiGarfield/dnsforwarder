@@ -707,7 +707,14 @@ static int Modules_Load(ConfigFileInfo *ConfigInfo)
         return -1;
     }
 
-    NewModuleMap->Distributor = NULL;
+    /* SafeMalloc is plain malloc() and leaves the block uninitialised.
+       Every failure path below jumps to ModulesFree, which reads (and
+       cleans up through) NewModuleMap->Modules / NewModuleMap->ModuleArray
+       before those fields are assigned.  With garbage non-NULL values the
+       cleanup would dereference a wild StableBuffer/Array pointer and
+       crash on an OOM error path.  Zero the whole map up front so unset
+       fields read as NULL and the cleanup paths become safe no-ops. */
+    memset(NewModuleMap, 0, sizeof(ModuleMap));
     if( InitChunk(&(NewModuleMap->Distributor)) != 0 )
     {
         ret = -10;

@@ -25,9 +25,10 @@
    static trick) so the test can read WriteTo / TimedTask_ToExit /
    TimedTask_Initialised and call TimedTask_Cleanup() directly.
  */
+#include <stdio.h>
+
 #ifndef _WIN32
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>

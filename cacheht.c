@@ -219,10 +219,33 @@ BOOL CacheHT_IsStructureSane(const CacheHT *h,
     {
         const Cht_Slot *Slot =
             (const Cht_Slot *)(SlotBase + sizeof(Cht_Slot) * (size_t)loop);
+        int hops = 0;
+        int sub;
 
         if( Slot->Next < -1 || Slot->Next >= NodeChunk->Used )
         {
             return FALSE;
+        }
+
+        /* Each slot heads a linked list of nodes (via Cht_Node.Next).  The
+           bounds are validated above; additionally reject cyclic chains,
+           which would make CacheHT_Get()'s walkers and
+           CacheHT_FindPredecessor() (CacheHT_RemoveFromSlot) loop forever on
+           the corrupted file.  A chain without repetition can hold at most
+           NodeChunk->Used distinct nodes, so more hops than that prove a
+           cycle. */
+        sub = Slot->Next;
+        while( sub >= 0 )
+        {
+            const Cht_Node *N;
+
+            if( ++hops > NodeChunk->Used )
+            {
+                return FALSE;
+            }
+
+            N = (const Cht_Node *)(NodeBase - sizeof(Cht_Node) * (size_t)sub);
+            sub = N->Next;
         }
     }
 

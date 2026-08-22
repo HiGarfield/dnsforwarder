@@ -475,6 +475,88 @@ int main(void)
         }
     }
 
+    /* ---- 18. A cyclic slot chain (0 -> 1 -> 0) ------------------------
+       The per-node Next checks bound every subscript but do not detect a
+       cycle.  With a cyclic chain, CacheHT_Get()'s walkers and
+       CacheHT_FindPredecessor() (CacheHT_RemoveFromSlot) loop forever,
+       hanging the daemon on a merely corrupted cache file. */
+    printf("Corrupted slot chain (cycle 0 -> 1 -> 0)\n");
+    {
+        CacheHT c;
+        Cht_Node *n0;
+        Cht_Node *n1;
+        TestSlot *s0;
+
+        BuildValidImage(Map, &c, &End, 24);
+        if( c.NodeChunk.Used >= 2 )
+        {
+            n0 = NodeAt(Map, CACHE_SIZE, c.Slots.Used, 0);
+            n1 = NodeAt(Map, CACHE_SIZE, c.Slots.Used, 1);
+            s0 = SlotAt(Map, CACHE_SIZE, c.Slots.Used, 0);
+
+            s0->Next = 0;
+            n0->Next = 1;
+            n1->Next = 0;
+            expect("a two-node cyclic slot chain is rejected",
+                   Validate(&c, Map, End) == FALSE);
+
+            n1->Next = -1;
+            expect("breaking the cycle makes the image valid again",
+                   Validate(&c, Map, End) == TRUE);
+        }
+        else
+        {
+            expect("(skip: fewer than 2 nodes in the image)", TRUE);
+        }
+    }
+
+    /* ---- 19. A self-referential node ----------------------------------
+       The shortest possible cycle: a node whose Next points at itself. */
+    printf("Corrupted slot chain (self-cycle)\n");
+    {
+        CacheHT c;
+        Cht_Node *n;
+        TestSlot *s;
+
+        BuildValidImage(Map, &c, &End, 24);
+        n = NodeAt(Map, CACHE_SIZE, c.Slots.Used, 0);
+        s = SlotAt(Map, CACHE_SIZE, c.Slots.Used, 0);
+
+        s->Next = 0;
+        n->Next = 0;               /* node 0 points at itself */
+        expect("a node that points at itself is rejected",
+               Validate(&c, Map, End) == FALSE);
+    }
+
+    /* ---- 20. A long but acyclic chain must still be accepted ----------
+       The cycle detector must not false-positive: a chain that visits every
+       node exactly once (hops == NodeChunk.Used, then -1) is legal. */
+    printf("A long acyclic slot chain\n");
+    {
+        CacheHT c;
+        int i;
+
+        BuildValidImage(Map, &c, &End, 24);
+        if( c.NodeChunk.Used >= 3 )
+        {
+            TestSlot *s = SlotAt(Map, CACHE_SIZE, c.Slots.Used, 0);
+            s->Next = 0;
+            for( i = 0; i < c.NodeChunk.Used - 1; ++i )
+            {
+                Cht_Node *n = NodeAt(Map, CACHE_SIZE, c.Slots.Used, i);
+                n->Next = i + 1;
+            }
+            NodeAt(Map, CACHE_SIZE, c.Slots.Used,
+                   c.NodeChunk.Used - 1)->Next = -1;
+            expect("an acyclic chain of every node is accepted",
+                   Validate(&c, Map, End) == TRUE);
+        }
+        else
+        {
+            expect("(skip: fewer than 3 nodes in the image)", TRUE);
+        }
+    }
+
     (void)SlotsUsed;
     free(Map);
 

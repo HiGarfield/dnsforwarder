@@ -21,7 +21,17 @@ $Root/stablebuffer.c
 $Root/test/stubs.c
 "
 
-${CC:-cc} -I"$Root" -g -Wall $CFLAGS -o "$Out" $Sources -lpthread -lm
+# The production sources compiled into this unit test need the Windows socket
+# and shell-path-matching libraries on MinGW/MSVC; on POSIX those symbols live
+# in libc.
+case "$(uname -s)" in
+    *Windows_NT*|MINGW*|MSYS*)
+        LIBS="-lws2_32 -lshlwapi -lpthread -lm" ;;
+    *)
+        LIBS="-lpthread -lm" ;;
+esac
+
+${CC:-cc} -I"$Root" -g -Wall $CFLAGS -o "$Out" $Sources $LIBS
 
 if [ -n "$VALGRIND" ]; then
     valgrind --error-exitcode=9 --leak-check=full -q "$Out"

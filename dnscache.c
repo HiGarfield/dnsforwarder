@@ -853,10 +853,17 @@ static int DNSCache_GetRawRecordsFromCache(__in    const char *Name,
             /* A corrupted node from a reloaded cache file could carry a
                UsedLength that runs past the mapping; reject it before we
                compute the data pointer so the generator never reads or
-               writes out of bounds. */
+               writes out of bounds.  The upper-bound checks alone are not
+               enough: a node whose UsedLength is SMALLER than its own key
+               header (1 length octet + KeyLength chars + 1 NUL) would make
+               the data length below negative -- the generator would then be
+               handed a negative DataLength (an unbounded/underflowed read on
+               the RDATA).  Reject the node unless UsedLength actually covers
+               the key header. */
             if( Node->Offset < 0 ||
                 (uint32_t)Node->Offset + Node->UsedLength > (uint32_t)CacheSize ||
-                (uint32_t)Node->Offset + 1 + (uint32_t)KeyLength + 1 > (uint32_t)CacheSize
+                (uint32_t)Node->Offset + 1 + (uint32_t)KeyLength + 1 > (uint32_t)CacheSize ||
+                Node->UsedLength < 1 + KeyLength + 1
               )
             {
                 break;

@@ -47,32 +47,41 @@ UdpM_Sweep_Thread(UdpM *m)
          * lock itself, otherwise we would deadlock on re-entry. */
         EFFECTIVE_LOCK_GET(m->Lock);
         KeepSweeping = m->IsServer || (m->WorkThread != NULL_THREAD);
-        EFFECTIVE_LOCK_RELEASE(m->Lock);
 
         if( !KeepSweeping )
         {
+            /* UdpM_Works is already gone (WorkThread is NULL), so this thread
+               is the last owner of m->Context and m->ServiceName.  Free them
+               under the lock: a concurrent frontend UdpM_Send() uses
+               m->Context while holding this very lock, and freeing unlocked
+               would be a use-after-free.  UdpM_Send() observes IsServer == 0
+               and bails out, so it never touches a freed Context.
+
+               Do NOT destroy m->Lock here: Modules_SafeCleanup keeps polling
+               it until the sweep thread is seen as exited, and destroying it
+               first is use-after-destroy UB (matching the constraint already
+               honored on the TCP side, which deliberately leaves the lock
+               intact for the cleanup thread to read). */
+            ModuleContext_Free(&(m->Context));
+
+            free((void *)(m->ServiceName));
+            m->ServiceName = NULL;
+
+            /* Publish "sweep thread exited" under the lock so
+               Modules_SafeCleanup's wait loop (which takes this very spin
+               lock to read WorkThread / SweepThread) observes it
+               synchronously. */
+            m->SweepThread = NULL_THREAD;
+            EFFECTIVE_LOCK_RELEASE(m->Lock);
+
             break;
         }
+
+        EFFECTIVE_LOCK_RELEASE(m->Lock);
 
         SweepTask(m, SweepWorks);
         SLEEP(10000);
     }
-
-    ModuleContext_Free(&(m->Context));
-
-    free((void *)(m->ServiceName));
-    m->ServiceName = NULL;
-
-    /* Publish "sweep thread exited" under the lock so Modules_SafeCleanup's
-     * wait loop (which takes this very spin lock to read WorkThread /
-     * SweepThread) observes it synchronously.  Do NOT destroy m->Lock here:
-     * Modules_SafeCleanup keeps polling it until the sweep thread is seen as
-     * exited, and destroying it first is use-after-destroy UB (matching the
-     * constraint already honored on the TCP side, which deliberately leaves
-     * the lock intact for the cleanup thread to read). */
-    EFFECTIVE_LOCK_GET(m->Lock);
-    m->SweepThread = NULL_THREAD;
-    EFFECTIVE_LOCK_RELEASE(m->Lock);
 
     return 0;
 }
@@ -368,6 +377,21 @@ static int UdpM_Send(void *Module,
     MsgContext_AddFakeEdns((MsgContext *)Buffer, BufferLength);
 
     EFFECTIVE_LOCK_GET(m->Lock);
+
+    /* Modules_SafeCleanup clears IsServer under this lock and the sweep/work
+       threads then tear the module down (UdpM_Cleanup, UdpM_Sweep_Thread).
+       A query that arrives after that must be dropped without touching
+       m->Context / m->Departure / m->AddrList, which may already be freed or
+       closed. */
+    if( m->IsServer == 0 )
+    {
+        EFFECTIVE_LOCK_RELEASE(m->Lock);
+        /* Dispatch dropped before it reached an upstream: release the TCP
+           socket hold so the frontend can close the client socket. */
+        MsgContext_ReleaseSocket((MsgContext *)Buffer);
+        return -242;
+    }
+
     /* Keep the pointer Add() returns: it addresses the copy stored inside the
      * BST node, and Bst_Delete() derives the node header from it as
      * ((Bst_NodeHead *)Node) - 1.  Handing it `Buffer` instead would make it

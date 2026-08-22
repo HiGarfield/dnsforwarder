@@ -632,6 +632,19 @@ PUBFUNC int TcpM_Send(void *Module,
        fd_set / internal arrays. */
     EFFECTIVE_LOCK_GET(m->Lock);
 
+    /* Modules_SafeCleanup clears IsServer under this lock and the worker
+       thread then tears the module's resources down (TcpM_Cleanup).  A query
+       that reaches a module which is no longer serving must be dropped without
+       touching m->Context / m->Puller, which may already be freed. */
+    if( m->IsServer == 0 )
+    {
+        EFFECTIVE_LOCK_RELEASE(m->Lock);
+        /* Dispatch dropped before it reached an upstream: release the TCP
+           socket hold so the frontend can close the client socket. */
+        MsgContext_ReleaseSocket((MsgContext *)Buffer);
+        return -1;
+    }
+
     /* Register the query in m->Context *before* it goes out, exactly like the
        listen-socket path in TcpM_Works and like UdpM_Send.  Two things depend
        on it:
@@ -650,6 +663,9 @@ PUBFUNC int TcpM_Send(void *Module,
     if( MsgCtxStored == NULL )
     {
         EFFECTIVE_LOCK_RELEASE(m->Lock);
+        /* Dispatch dropped before it reached an upstream: release the TCP
+           socket hold so the frontend can close the client socket. */
+        MsgContext_ReleaseSocket((MsgContext *)Buffer);
         return -1;
     }
 
@@ -658,9 +674,12 @@ PUBFUNC int TcpM_Send(void *Module,
     if( r <= 0 )
     {
         /* Nothing was sent, so no answer can ever arrive: drop the entry rather
-           than leave it for the sweeper. */
+           than leave it for the sweeper, and release the TCP socket hold so the
+           frontend's per-socket dispatch counter drains and it can close the
+           client socket. */
         IHeader_Reset((IHeader *)MsgCtxStored);
         m->Context.Del(&(m->Context), MsgCtxStored);
+        MsgContext_ReleaseSocket((MsgContext *)Buffer);
     }
 
     EFFECTIVE_LOCK_RELEASE(m->Lock);
@@ -670,6 +689,21 @@ PUBFUNC int TcpM_Send(void *Module,
 
 static int TcpM_Cleanup(TcpM *m)
 {
+    /* Everything torn down here -- m->Puller, m->Context, m->QueryPuller,
+     * m->Agents, m->ServiceList, m->IsServer -- is also used by the frontend
+     * entry TcpM_Send() while it holds m->Lock.  Freeing it unlocked would let
+     * a concurrent dispatch dereference already freed pullers/context
+     * (use-after-free), and the write to IsServer would be a data race with
+     * that reader.  The whole teardown therefore takes the lock, exactly like
+     * UdpM_Cleanup does for the UDP module.
+     *
+     * Note: the lock is deliberately *not* destroyed here.  Modules_SafeCleanup
+     * keeps polling IsServer/WorkThread under this very lock until it observes
+     * that the thread is gone, so destroying it at this point would leave that
+     * loop locking freed/destroyed state on its next iteration.  The lock lives
+     * inside the module instance and dies with it in Modules_Free(). */
+    EFFECTIVE_LOCK_GET(m->Lock);
+
     m->IsServer = 0;
 
     CLOSE_SOCKET(m->Incoming);
@@ -698,16 +732,11 @@ static int TcpM_Cleanup(TcpM *m)
     free((void *)(m->ProxyName));
     m->ProxyName = NULL;
 
-    /* Publish "thread exited" under the lock so Modules_SafeCleanup's wait
-     * loop reads it synchronously instead of racing on a plain write.
-     *
-     * Note: the lock is deliberately *not* destroyed here.  Modules_SafeCleanup
-     * keeps polling IsServer/WorkThread under this very lock until it observes
-     * that the thread is gone, so destroying it at this point would leave that
-     * loop locking freed/destroyed state on its next iteration.  The lock lives
-     * inside the module instance and dies with it in Modules_Free(). */
-    EFFECTIVE_LOCK_GET(m->Lock);
+    /* Publishing WorkThread = NULL inside the same critical section keeps
+     * Modules_SafeCleanup's wait loop (which takes this very lock to read
+     * IsServer/WorkThread) synchronized with the teardown above. */
     m->WorkThread = NULL_THREAD;
+
     EFFECTIVE_LOCK_RELEASE(m->Lock);
 
     return 0;

@@ -90,7 +90,7 @@ PUBFUNC SOCKET SocketPuller_Select(SocketPuller *p,
                                    )
 {
     fd_set ReadySet;
-    SOCKET s;
+    SOCKET s = INVALID_SOCKET;
     int Err = 0;
 
     while( TRUE )

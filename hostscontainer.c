@@ -159,24 +159,16 @@ PRIFUNC const void *HostsContainer_FindExist(HostsContainer  *Container,
                                             )
 {
     const TableNode **Matched = NULL;
-    const TableNode *IP = NULL;
 
     if( !StringChunk_Match_Exactly(&(Container->Mappings), Name, NULL, (void **)&Matched, NULL, NULL) )
     {
         return NULL;
     }
 
-    if( Matched != NULL )
-    {
-        IP = *Matched;
-    }
-
-    if( IP != NULL )
-    {
-        return IP;
-    } else {
-        return NULL;
-    }
+    /* StringChunk_Match_Exactly returns TRUE only after filling *Matched with
+       the matched node (or leaving it NULL when the match carried no data),
+       so the result is exactly *Matched -- no separate NULL sentinel needed. */
+    return Matched != NULL ? *Matched : NULL;
 }
 
 PRIFUNC int HostsContainer_AddNode(HostsContainer   *Container,

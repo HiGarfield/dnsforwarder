@@ -148,7 +148,14 @@ int IpSet_Parse(const char *s, const char *p, IpSet *ipSet)
         n = atoi(p);
         if( n < 0 )
         {
-            n = -1;
+            /* A negative prefix length (e.g. "10.0.0.0/-5") is meaningless.
+               Reject the entry instead of storing PrefixBits = -1, which would
+               be accepted by IpChunk_Add yet could never match any query key
+               (IpChunk_Find only builds keys with PrefixBits >= 0).  Such a
+               silent dead rule makes a configured block/substitution vanish
+               without any diagnostic.  Behaviour matches the n > L clamp below:
+               out-of-range input is a parse failure, not a zeroed/garbage entry. */
+            return -1;
         } else if( n > L ) {
             n = L;
         }

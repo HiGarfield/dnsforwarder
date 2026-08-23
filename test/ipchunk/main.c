@@ -99,6 +99,29 @@ int main(void)
 
     IpChunk_Free(&ic);
 
+    /* Regression test: IpSet_Parse must reject a negative prefix length instead
+     * of storing PrefixBits = -1.  A PrefixBits = -1 entry is accepted by
+     * IpChunk_Add yet can never match any query key (IpChunk_Find only builds
+     * keys with PrefixBits >= 0), so it would be a silent dead rule that makes
+     * a configured block/substitution vanish without any diagnostic.  See the
+     * round-review fix in ipchunk.c. */
+    {
+        IpSet bad;
+        if( IpSet_Parse("10.0.0.0", "-5", &bad) == 0 )
+            return fail("IpSet_Parse must reject negative prefix '/-5'");
+        if( IpSet_Parse("10.0.0.0", "-1", &bad) == 0 )
+            return fail("IpSet_Parse must reject negative prefix '/-1'");
+        /* Out-of-range but non-negative lengths must still clamp, not fail. */
+        {
+            IpSet ok;
+            if( IpSet_Parse("10.0.0.0", "8", &ok) != 0 || ok.PrefixBits != 8 )
+                return fail("IpSet_Parse '/8' should clamp to PrefixBits=8");
+            /* atoi("abc") == 0 -> /0, a valid whole-network entry. */
+            if( IpSet_Parse("10.0.0.0", "abc", &ok) != 0 || ok.PrefixBits != 0 )
+                return fail("IpSet_Parse '/abc' should fall back to /0");
+        }
+    }
+
     /* Regression test: IpAddr_From4 must not assume its 4 source octets are
      * 32-bit aligned.  The old code did
      *   *(uint32_t *)(ipAddr->Addr + 12) = *(uint32_t *)Addr;

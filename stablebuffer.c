@@ -144,6 +144,7 @@ int StableBuffer_Init(StableBuffer *s)
     s->Add = Add;
     s->Clear = Clear;
     s->Free = Free;
+    s->RollbackLast = StableBuffer_RollbackLast;
 
     /* Zero the MetaInfo Array up front.  Array_Init() may fail (e.g. under
        memory pressure) and leave MetaInfo uninitialised; callers such as
@@ -297,6 +298,55 @@ static void StableBufferIterator_RemoveNBytesOfCurrentBlock(
 static void StableBufferIterator_Free(StableBufferIterator *i)
 {
 
+}
+
+/* Undo the most recent Add() that wrote `Length' (optionally aligned) bytes.
+ * Add() always appends at the tail of the last block, so removing that many
+ * bytes from the end of the last block exactly reverts it -- whether the Add
+ * opened a fresh block (its Used drops back to 0, the block is left empty and
+ * reused later) or extended an existing one.  This lets a caller that has to
+ * roll back a partially-completed compound operation (e.g. StringChunk_Add,
+ * which writes the payload first and then the key) reclaim the payload block
+ * instead of leaking it.  Returns 0 on success, -1 on a bad parameter. */
+int StableBuffer_RollbackLast(StableBuffer *s, int Length, BOOL Align)
+{
+    StableBufferIterator it;
+    int32_t Used;
+    int n;
+
+    if( s == NULL || Length <= 0 )
+    {
+        return -1;
+    }
+
+    n = (int)(Align ? ROUND_UP((size_t)Length, sizeof(void *)) : (size_t)Length);
+
+    if( StableBufferIterator_Init(&it, s) != 0 )
+    {
+        return -1;
+    }
+
+    /* ToLast positions Current on the second-to-last block and then advances
+       it to the last one (see StableBufferIterator_ToLast), so it always
+       lands on the block that Add() just extended. */
+    if( it.ToLast(&it) == NULL )
+    {
+        it.Free(&it);
+        return -1;
+    }
+
+    Used = it.CurrentBlockUsed(&it);
+    if( Used < n )
+    {
+        /* Corrupt accounting: never remove more than the block holds. */
+        it.Free(&it);
+        return -1;
+    }
+
+    it.RemoveLastNBytesOfCurrentBlock(&it, n);
+    it.Free(&it);
+
+    return 0;
 }
 
 int StableBufferIterator_Init(StableBufferIterator *i, StableBuffer *s)

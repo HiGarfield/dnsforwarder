@@ -17,9 +17,17 @@ struct _StableBuffer{
     void    *(*Add)(StableBuffer *s, const void *Data, int Length, BOOL Align);
     void    (*Clear)(StableBuffer *s);
     void    (*Free)(StableBuffer *s);
+    int     (*RollbackLast)(StableBuffer *s, int Length, BOOL Align);
 };
 
 int StableBuffer_Init(StableBuffer *s);
+
+/* Undo the most recent Add() of `Length' (optionally aligned) bytes by
+ * removing them from the tail of the last block.  Used to roll back a
+ * partially-completed compound write (e.g. when the caller's key insertion
+ * fails after the payload was already stored).  Returns 0 on success,
+ * -1 on a bad parameter / inconsistent state. */
+int StableBuffer_RollbackLast(StableBuffer *s, int Length, BOOL Align);
 
 /**
  Iterator

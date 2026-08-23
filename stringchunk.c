@@ -111,6 +111,16 @@ int StringChunk_Add(StringChunk *dl,
     NewEntry.str = sl->Add(sl, Str, NULL);
     if( NewEntry.str == NULL )
     {
+        /* The payload was already committed into the StableBuffer above; if we
+           simply return here it stays allocated forever (it is never matched or
+           freed until the whole chunk is destroyed, and a StringChunk that keeps
+           accepting adds would leak it on every failed key-insert -- a memory
+           leak under memory pressure).  Roll the payload back so a failed add
+           leaves the chunk exactly as it was found. */
+        if( NewEntry.Data != NULL )
+        {
+            sb->RollbackLast(sb, LengthOfAdditionalData, TRUE);
+        }
         return -2;
     }
 

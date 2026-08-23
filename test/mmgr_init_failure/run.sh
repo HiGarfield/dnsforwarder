@@ -69,27 +69,26 @@ src = open(sys.argv[1]).read()
 src = re.sub(r'/\*.*?\*/', '', src, flags=re.S)
 lines = src.split('\n')
 
-# The actual per-field free logic now lives in Modules_FreeInner (Modules_Free
-# just delegates to it and then frees the struct itself).  Both must exist and
-# the inner routine must still NULL-guard every field so an OOM/partial-load
-# path never dereferences garbage Modules/ModuleArray/Distributor pointers.
-free_start = next((n for n, l in enumerate(lines)
-                   if 'static void Modules_Free(ModuleMap *ModuleMap)' in l), None)
-if free_start is None:
-    print('  [FAIL] Modules_Free not found; test is stale')
-    sys.exit(1)
-
+# The per-field free logic lives in Modules_FreeInner (the now-removed
+# Modules_Free wrapper only delegated to it and freed the struct).  The inner
+# routine must still NULL-guard every field so an OOM/partial-load path never
+# dereferences garbage Modules/ModuleArray/Distributor pointers.
 inner_start = next((n for n, l in enumerate(lines)
                     if 'static void Modules_FreeInner(ModuleMap *ModuleMap)' in l), None)
 if inner_start is None:
     print('  [FAIL] Modules_FreeInner not found; test is stale')
     sys.exit(1)
 
-# Modules_Free must route through Modules_FreeInner (so the per-field guards
-# are honoured on every caller, including the safe-cleanup path that must not
-# free the caller-owned struct).
-if 'Modules_FreeInner(ModuleMap);' not in '\n'.join(lines[free_start:free_start + 12]):
-    print('  [FAIL] Modules_Free does not delegate to Modules_FreeInner')
+# Modules_SafeCleanup must tear down the internals via Modules_FreeInner
+# (leaving the struct itself to the caller, so a stack-owned map is never
+# bad-freed) -- this is the invariant fixed in the round-1 bad-free bug.
+safe_start = next((n for n, l in enumerate(lines)
+                   if 'Modules_SafeCleanup(ModuleMap *ModuleMap)' in l), None)
+if safe_start is None:
+    print('  [FAIL] Modules_SafeCleanup not found; test is stale')
+    sys.exit(1)
+if 'Modules_FreeInner(ModuleMap);' not in '\n'.join(lines[safe_start:safe_start + 80]):
+    print('  [FAIL] Modules_SafeCleanup does not free internals via Modules_FreeInner')
     sys.exit(1)
 
 body = '\n'.join(lines[inner_start:inner_start + 30])

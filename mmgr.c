@@ -639,18 +639,6 @@ static void Modules_FreeInner(ModuleMap *ModuleMap)
     }
 }
 
-static void Modules_Free(ModuleMap *ModuleMap)
-{
-    if( ModuleMap == NULL )
-    {
-        return;
-    }
-    Modules_FreeInner(ModuleMap);
-    /* The module lifecycle locks are intentionally never destroyed; they die
-       with this memory, matching the convention documented in Udp_Init(). */
-    SafeFree(ModuleMap);
-}
-
 /* Forward declaration so Modules_SafeCleanupAndFree (defined just below) can
    call Modules_SafeCleanup (defined further down) under C89 / -Werror. */
 static int

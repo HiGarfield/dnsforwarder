@@ -176,6 +176,43 @@ static SOCKET TcpM_Connect_Addr(sa_family_t af, const struct sockaddr *addr)
     return s;
 }
 
+/* Build a base connection to every configured SOCKS proxy into m->ProxyPuller.
+   It is only ever invoked from TcpM_Connect's proxy pre-warm branch, which
+   already runs under m->Lock, so this routine deliberately does NOT take
+   m->Lock itself.  That is essential: a recursive call to TcpM_Connect()
+   would re-acquire the same spin lock, and on Linux EFFECTIVE_LOCK is a
+   non-recursive pthread_spinlock, so re-entering it from the holding thread
+   deadlocks (the worker / sender thread spins forever on a self-held lock).
+   Keeping the work inline and lock-free-relative-to-m->Lock avoids that
+   self-deadlock while still leaving the ProxyPuller mutations covered by the
+   caller's m->Lock against concurrent TcpM_Works access. */
+static int TcpM_ConnectProxyPool(TcpM *m)
+{
+    struct sockaddr **PAs = m->SocksProxies;
+    sa_family_t     *PFs = m->SocksProxyFamilies;
+    int i, Num = AddressList_GetNumberOfAddresses(&(m->SocksProxyList));
+    int n = 0;
+
+    for( i = 0; i < Num; ++i )
+    {
+        SOCKET      s = TcpM_Connect_Addr(PFs[i], PAs[i]);
+        TcpContext  TcpCtxNew;
+
+        if( s == INVALID_SOCKET )
+        {
+            continue;
+        }
+
+        TcpCtxNew.ServerIndex  = i;
+        TcpCtxNew.LastActivity = time(NULL);
+        TcpCtxNew.Queried      = 0;
+        m->ProxyPuller.Add(&(m->ProxyPuller), s, &TcpCtxNew, sizeof(TcpContext));
+        ++n;
+    }
+
+    return n;
+}
+
 static int TcpM_Connect(TcpM *m, int ServerIndex, BOOL IsProxy)
 {
     struct sockaddr **ServerAddresses;
@@ -265,17 +302,21 @@ static int TcpM_Connect(TcpM *m, int ServerIndex, BOOL IsProxy)
             TcpCtxNew.Queried = 0;
             TcpCtx = &TcpCtxNew;
         } else {
-            if( TcpM_Connect(m, -1, TRUE) > 0 ) {
-                s = TcpM_Connect_GetAvailable(&(m->ProxyPuller), &TcpCtx);
-                if( s == INVALID_SOCKET )
-                {
-                    continue;
-                }
-                DEBUG("Got proxy connection for Pullers[%d].\n", idx);
-                TcpCtx->ServerIndex = idx;
-            } else {
+            /* Pre-warm the proxy pool so a connection to the actual upstream
+               can be tunneled through SOCKS.  This runs under m->Lock (the
+               caller already holds it); call the non-recursive helper instead
+               of TcpM_Connect(m, -1, TRUE), whose recursive re-acquisition of
+               the same spin lock would deadlock on Linux (non-recursive
+               pthread_spinlock).  TcpM_ConnectProxyPool leaves m->Lock held,
+               so the subsequent ProxyPuller access stays race-free. */
+            TcpM_ConnectProxyPool(m);
+            s = TcpM_Connect_GetAvailable(&(m->ProxyPuller), &TcpCtx);
+            if( s == INVALID_SOCKET )
+            {
                 continue;
             }
+            DEBUG("Got proxy connection for Pullers[%d].\n", idx);
+            TcpCtx->ServerIndex = idx;
         }
 
         Puller->Add(Puller, s, TcpCtx, sizeof(TcpContext));

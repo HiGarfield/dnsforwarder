@@ -30,6 +30,11 @@ $Root/utils.c
 $Root/addresslist.c
 $Root/stringlist.c
 $Root/dnsgenerator.c
+$Root/stringchunk.c
+$Root/simpleht.c
+$Root/stablebuffer.c
+$Root/array.c
+$Root/readline.c
 $Root/test/stubs.c
 "
 

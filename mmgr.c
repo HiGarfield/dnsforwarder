@@ -608,8 +608,16 @@ static int Modules_Init(ModuleMap *ModuleMap, ConfigFileInfo *ConfigInfo)
     return 0;
 }
 
-static void Modules_Free(ModuleMap *ModuleMap)
+static void Modules_FreeInner(ModuleMap *ModuleMap)
 {
+    /* Frees every resource owned by *ModuleMap EXCEPT the ModuleMap struct
+       itself.  The caller decides whether the struct lives on the heap (and
+       must be SafeFree()'d) or on the stack (e.g. a unit test driving
+       Modules_SafeCleanup directly).  Freeing the struct here unconditionally
+       is a bad-free / double-free hazard: the main reload path hands a heap
+       ModuleMap to a detached cleanup thread, while tests pass a stack
+       ModuleMap, and Modules_Load's failure branch frees the same struct a
+       second time after SafeCleanup already freed it. */
     if( ModuleMap == NULL )
     {
         return;
@@ -629,7 +637,42 @@ static void Modules_Free(ModuleMap *ModuleMap)
         StringChunk_Free(ModuleMap->Distributor, TRUE);
         SafeFree(ModuleMap->Distributor);
     }
+}
+
+static void Modules_Free(ModuleMap *ModuleMap)
+{
+    if( ModuleMap == NULL )
+    {
+        return;
+    }
+    Modules_FreeInner(ModuleMap);
+    /* The module lifecycle locks are intentionally never destroyed; they die
+       with this memory, matching the convention documented in Udp_Init(). */
     SafeFree(ModuleMap);
+}
+
+/* Forward declaration so Modules_SafeCleanupAndFree (defined just below) can
+   call Modules_SafeCleanup (defined further down) under C89 / -Werror. */
+static int
+#ifdef WIN32
+WINAPI
+#endif
+Modules_SafeCleanup(ModuleMap *ModuleMap);
+
+static int
+#ifdef WIN32
+WINAPI
+#endif
+Modules_SafeCleanupAndFree(ModuleMap *ModuleMap)
+{
+    /* Thread entry wrapper used by the reload path.  Modules_SafeCleanup only
+       tears down the internals; the heap ModuleMap it was given must be freed
+       here because the cleanup thread is detached and has no caller to return
+       to.  Splitting the responsibilities lets callers that pass a stack-owned
+       ModuleMap (unit tests) use Modules_SafeCleanup() without a bad-free. */
+    Modules_SafeCleanup(ModuleMap);
+    SafeFree(ModuleMap);
+    return 0;
 }
 
 static int
@@ -712,7 +755,13 @@ Modules_SafeCleanup(ModuleMap *ModuleMap)
     RWLock_WrLock(ModulesLock);
     RWLock_UnWLock(ModulesLock);
 
-    Modules_Free(ModuleMap);
+    /* Tear down the internals but NOT the ModuleMap struct itself: the caller
+       owns it.  The reload path passes a heap map via Modules_SafeCleanupAndFree
+       (which frees it); unit tests may pass a stack map and must not see a
+       bad-free.  Freeing the struct here would also double-free in
+       Modules_Load's failure branch, which frees the same struct after this
+       routine returns. */
+    Modules_FreeInner(ModuleMap);
     INFO("Last GroupFile Modules freed.\n");
 
     return 0;
@@ -807,14 +856,14 @@ static int Modules_Load(ConfigFileInfo *ConfigInfo)
            the HANDLE to `th` and its value is that HANDLE.  Capture/check
            accordingly so the code compiles and behaves on both. */
 #ifdef _WIN32
-        CREATE_THREAD(Modules_SafeCleanup, OldModuleMap, th);
+        CREATE_THREAD(Modules_SafeCleanupAndFree, OldModuleMap, th);
         if( th == NULL_THREAD )
         {
             ERRORMSG("Failed to start cleanup thread.\n");
             return -99;
         }
 #else
-        ret = CREATE_THREAD(Modules_SafeCleanup, OldModuleMap, th);
+        ret = CREATE_THREAD(Modules_SafeCleanupAndFree, OldModuleMap, th);
         if( ret != 0 )
         {
             ERRORMSG("Failed to start cleanup thread: %d\n", ret);
@@ -829,25 +878,23 @@ static int Modules_Load(ConfigFileInfo *ConfigInfo)
     return 0;
 
 ModulesFree:
-    if( NewModuleMap->Modules != NULL )
-    {
-        /* Some groups may already have been created before a later group
-         * failed, and their worker threads (UdpM_Works / UdpM_Sweep_Thread /
-         * TcpM_Works) are still running.  A bare Modules_Free() would free
-         * those instances -- including the spin lock every worker acquires on
-         * each loop iteration -- out from under the threads: use-after-free
-         * on the module lock / context / pullers.  Modules_SafeCleanup()
-         * clears IsServer so each started worker exits, waits for the thread
-         * handles to be nulled, drains in-flight MMgr_Send readers via the
-         * ModulesLock barrier, and only then frees the map.  Entries whose
-         * constructor failed (Send == NULL) are skipped because they never
-         * started a thread. */
-        Modules_SafeCleanup(NewModuleMap);
-    }
-    else
-    {
-        Modules_Free(NewModuleMap);
-    }
+    /* Some groups may already have been created before a later group
+     * failed, and their worker threads (UdpM_Works / UdpM_Sweep_Thread /
+     * TcpM_Works) are still running.  A bare Modules_Free() would free
+     * those instances -- including the spin lock every worker acquires on
+     * each loop iteration -- out from under the threads: use-after-free
+     * on the module lock / context / pullers.  Modules_SafeCleanup()
+     * clears IsServer so each started worker exits, waits for the thread
+     * handles to be nulled, drains in-flight MMgr_Send readers via the
+     * ModulesLock barrier, and only then frees the map internals.  Entries
+     * whose constructor failed (Send == NULL) are skipped because they never
+     * started a thread.  Modules_SafeCleanup no longer frees the ModuleMap
+     * struct itself, so we SafeFree() it here exactly once -- regardless of
+     * whether any group was created -- which also avoids the previous
+     * double-free when the struct had already been freed inside
+     * Modules_SafeCleanup. */
+    Modules_SafeCleanup(NewModuleMap);
+    SafeFree(NewModuleMap);
     INFO("Loading GroupFile(s) failed.\n");
     return ret;
 }
@@ -864,7 +911,13 @@ static void Modules_Cleanup(void)
        ModulesLock to drain any in-flight MMgr_Send, and only then frees. */
     if( CurModuleMap != NULL )
     {
+        /* Tear down internals, then free the heap ModuleMap struct exactly
+           once.  Modules_SafeCleanup leaves the struct alone so callers that
+           pass a stack-owned map (unit tests) stay safe; here the map is heap
+           allocated, so we own and free it. */
         Modules_SafeCleanup(CurModuleMap);
+        SafeFree(CurModuleMap);
+        CurModuleMap = NULL;
     }
     RWLock_Destroy(ModulesLock);
 }

@@ -61,7 +61,7 @@ print('  [ ok ] NewModuleMap is zeroed before any failure branch '
 sys.exit(0)
 PY
 
-echo "Part 2: Modules_Free tolerates NULL Modules / ModuleArray fields"
+echo "Part 2: Modules_Free(Inner) tolerates NULL Modules / ModuleArray fields"
 python3 - "$Root/mmgr.c" <<'PY'
 import re, sys
 
@@ -69,19 +69,36 @@ src = open(sys.argv[1]).read()
 src = re.sub(r'/\*.*?\*/', '', src, flags=re.S)
 lines = src.split('\n')
 
-start = next((n for n, l in enumerate(lines)
-              if 'static void Modules_Free(ModuleMap *ModuleMap)' in l), None)
-if start is None:
+# The actual per-field free logic now lives in Modules_FreeInner (Modules_Free
+# just delegates to it and then frees the struct itself).  Both must exist and
+# the inner routine must still NULL-guard every field so an OOM/partial-load
+# path never dereferences garbage Modules/ModuleArray/Distributor pointers.
+free_start = next((n for n, l in enumerate(lines)
+                   if 'static void Modules_Free(ModuleMap *ModuleMap)' in l), None)
+if free_start is None:
     print('  [FAIL] Modules_Free not found; test is stale')
     sys.exit(1)
 
-body = '\n'.join(lines[start:start + 30])
+inner_start = next((n for n, l in enumerate(lines)
+                    if 'static void Modules_FreeInner(ModuleMap *ModuleMap)' in l), None)
+if inner_start is None:
+    print('  [FAIL] Modules_FreeInner not found; test is stale')
+    sys.exit(1)
+
+# Modules_Free must route through Modules_FreeInner (so the per-field guards
+# are honoured on every caller, including the safe-cleanup path that must not
+# free the caller-owned struct).
+if 'Modules_FreeInner(ModuleMap);' not in '\n'.join(lines[free_start:free_start + 12]):
+    print('  [FAIL] Modules_Free does not delegate to Modules_FreeInner')
+    sys.exit(1)
+
+body = '\n'.join(lines[inner_start:inner_start + 30])
 for needle in ('ModuleMap->Modules != NULL',
                'ModuleMap->ModuleArray != NULL',
                'ModuleMap->Distributor != NULL'):
     if needle not in body:
-        print('  [FAIL] Modules_Free does not NULL-guard %s' % needle)
+        print('  [FAIL] Modules_FreeInner does not NULL-guard %s' % needle)
         sys.exit(1)
-print('  [ ok ] Modules_Free NULL-guards every field')
+print('  [ ok ] Modules_Free delegates to Modules_FreeInner, which NULL-guards every field')
 sys.exit(0)
 PY

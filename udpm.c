@@ -567,8 +567,10 @@ int UdpM_Init(UdpM *m, const char *Services, BOOL Parallel)
 
     m->IsServer = 1;
 
-    EFFECTIVE_LOCK_INIT(m->Lock);
-
+    /* NOTE: m->Lock is initialized by the caller (Udp_Init_Core) BEFORE this
+       constructor runs, so that a mid-construction failure still leaves a valid
+       (initialized) lock for Modules_SafeCleanup to take.  Do NOT re-initialize
+       it here -- a double init is undefined behaviour. */
     m->Send = UdpM_Send;
 
     CREATE_THREAD(UdpM_Works, m, m->WorkThread);

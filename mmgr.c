@@ -136,9 +136,23 @@ static int Udp_Init_Core(ModuleMap *ModuleMap,
         ParallelQuery = FALSE;
     }
 
+    /* Initialize the module's lifecycle lock BEFORE the constructor runs.  The
+       constructor (UdpM_Init) may fail partway (bind error, OOM) and return
+       without initializing m->Lock, but Modules_SafeCleanup still matches this
+       module by its "UDP"/"TCP" name and takes m->Lock.  A lock that was never
+       initialized is undefined behaviour on Linux, so initialize it up front
+       and destroy it on the failure path below.  UdpM_Init must therefore NOT
+       re-initialize the same lock (double init is also UB). */
+    EFFECTIVE_LOCK_INIT(NewM->ModuleUnion.Udp.Lock);
+
     /* Initializing module */
     if( UdpM_Init(&(NewM->ModuleUnion.Udp), Services, ParallelQuery) != 0 )
     {
+        /* Leave Udp.Lock initialized: Modules_SafeCleanup still matches this
+           failed module by its "UDP" name and takes Udp.Lock, so destroying it
+           here would make that GET a use-after-destroy.  The lock dies with the
+           ModuleMap's memory (Modules_Free), which never destroys it explicitly,
+           exactly like a successfully-initialized module. */
         return -128;
     }
 
@@ -233,9 +247,20 @@ static int Tcp_Init_Core(ModuleMap *ModuleMap,
         Proxies = NULL;
     }
 
+    /* Initialize the module's lifecycle lock BEFORE the constructor runs.
+       TcpM_Init may fail partway (bind error, OOM) and return without
+       initializing m->Lock, yet Modules_SafeCleanup matches this module by its
+       "TCP" name and takes m->Lock; an uninitialized lock is UB on Linux.  Init
+       it up front and destroy on the failure path.  TcpM_Init must NOT
+       re-initialize the same lock (double init is UB). */
+    EFFECTIVE_LOCK_INIT(NewM->ModuleUnion.Tcp.Lock);
+
     /* Initializing module */
     if( TcpM_Init(&(NewM->ModuleUnion.Tcp), Services, ParallelQuery, Proxies) != 0 )
     {
+        /* Leave Tcp.Lock initialized for the same reason as the UDP branch:
+           Modules_SafeCleanup matches this failed module by "TCP" and takes
+           Tcp.Lock, so destroying it here would be a use-after-destroy. */
         return -180;
     }
 

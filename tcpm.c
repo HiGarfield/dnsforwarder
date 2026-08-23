@@ -1278,8 +1278,11 @@ int TcpM_Init(TcpM *m, const char *Services, BOOL Parallel, const char *SocksPro
 
     m->Parallel = Parallel;
     m->IsServer = 1;
-    EFFECTIVE_LOCK_INIT(m->Lock);
 
+    /* NOTE: m->Lock is initialized by the caller (Tcp_Init_Core) BEFORE this
+       constructor runs, so a mid-construction failure still leaves a valid
+       (initialized) lock for Modules_SafeCleanup to take.  Do NOT re-initialize
+       it here -- a double init is undefined behaviour. */
     CREATE_THREAD(TcpM_Works, m, m->WorkThread);
     DETACH_THREAD(m->WorkThread);
 

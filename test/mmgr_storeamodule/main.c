@@ -177,6 +177,16 @@ int main(void)
     {
         expect("its name is \"UDP\"", strcmp(m0->ModuleName, "UDP") == 0);
         expect("its Send pointer is NULL (was garbage)", m0->Send == NULL);
+
+        /* BUG FIX (Round-3): the lifecycle lock must be initialized even when
+           the constructor fails, because Modules_SafeCleanup still matches this
+           module by its "UDP" name and takes the lock.  An uninitialized lock
+           is undefined behaviour (pthread_spin_lock on a garbage spinlock), so
+           we exercise the exact GET/RELEASE that Modules_SafeCleanup performs.
+           Under ASan/TSan this traps on the previously-uninitialized lock. */
+        EFFECTIVE_LOCK_GET(m0->ModuleUnion.Udp.Lock);
+        EFFECTIVE_LOCK_RELEASE(m0->ModuleUnion.Udp.Lock);
+        expect("failed-UDP module lock is safely lockable", 1);
     }
 
     /* ---- 2. MMgr_Send must not call a NULL Send ----------------------- */
@@ -207,6 +217,14 @@ int main(void)
         m0 = *(ModuleInterface **)Array_GetBySubscript(mm.ModuleArray, 1);
         expect("the TCP module Send is NULL too",
                m0 != NULL && m0->Send == NULL);
+
+        /* Same lock-initialization guarantee for the failed TCP module. */
+        if( m0 != NULL )
+        {
+            EFFECTIVE_LOCK_GET(m0->ModuleUnion.Tcp.Lock);
+            EFFECTIVE_LOCK_RELEASE(m0->ModuleUnion.Tcp.Lock);
+            expect("failed-TCP module lock is safely lockable", 1);
+        }
     }
 
     /* ---- 4. MMgr_Send still skips NULL-Send modules with both broken ---- */

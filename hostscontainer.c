@@ -243,26 +243,32 @@ OUT_SEARCH:
                        below. */
                     return -171;
                 }
-            }
 
-            /* `ipAddr` now lives inside TableIPAddr, but IpAddr_Parse points
-               `Zone` at the caller's string (e.g. a stack buffer in
-               HostsContainer_Load). Copy that Zone string into the persistent
-               Container->Table and rebind the pointer, otherwise the stored
-               IpAddr keeps a dangling pointer. Sentinel Zones (Z0/Z4/Z6noz)
-               are compile-time constants and need no copy. */
-            if( ipAddr != NULL && IpAddr_HasZone((const IpAddr *)ipAddr) )
-            {
-                const char *z = Container->Table.Add(&(Container->Table),
-                                                      ((const IpAddr *)ipAddr)->Zone,
-                                                      strlen(((const IpAddr *)ipAddr)->Zone) + 1,
-                                                      TRUE
-                                                      );
-                if( z == NULL )
+                /* `ipAddr` now lives inside TableIPAddr, but IpAddr_Parse points
+                   `Zone` at the caller's string (e.g. a stack buffer in
+                   HostsContainer_Load). Copy that Zone string into the persistent
+                   Container->Table and rebind the pointer, otherwise the stored
+                   IpAddr keeps a dangling pointer. Sentinel Zones (Z0/Z4/Z6noz)
+                   are compile-time constants and need no copy.
+                   This rebind is performed ONLY when the IpAddr record is first
+                   created: on a de-duplication hit (ipAddr already set above) the
+                   shared record keeps its already-persistent Zone pointer, so we
+                   must not copy the Zone string again (that would leak the
+                   previous copy and silently rewrite a pointer shared by every
+                   node that references this record). */
+                if( IpAddr_HasZone((const IpAddr *)ipAddr) )
                 {
-                    return -172;
+                    const char *z = Container->Table.Add(&(Container->Table),
+                                                          ((const IpAddr *)ipAddr)->Zone,
+                                                          strlen(((const IpAddr *)ipAddr)->Zone) + 1,
+                                                          TRUE
+                                                          );
+                    if( z == NULL )
+                    {
+                        return -172;
+                    }
+                    ((IpAddr *)ipAddr)->Zone = z;
                 }
-                ((IpAddr *)ipAddr)->Zone = z;
             }
 
             n.Data = ipAddr;

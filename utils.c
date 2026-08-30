@@ -1437,7 +1437,9 @@ int SetSocketTimeout(SOCKET Sock, int OptName, int Timeout)
 #ifdef _WIN32
     DWORD t = Timeout;
 #else
-    struct timeval t = {Timeout / 1000, (Timeout % 1000) * 1000};
+    struct timeval t;
+    t.tv_sec = Timeout / 1000;
+    t.tv_usec = (Timeout % 1000) * 1000;
 #endif
 
     return setsockopt(Sock, SOL_SOCKET, OptName, (void *)&t, sizeof(t));

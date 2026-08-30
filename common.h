@@ -32,6 +32,40 @@
  * `unsigned long long` and integer constants); the few files that use it are
  * fixed directly at their use sites. */
 
+/* C99/POSIX identifiers the codebase legitimately uses but that ISO C90 hides
+ * whenever the translator is placed in a strict standard mode (`-std=c89
+ * -pedantic*`, which defines `__STRICT_ANSI__`).  The real library symbols
+ * still exist and are linked in normally; we only need them visible to the
+ * compiler so the strict build (a hard project requirement) succeeds.
+ *
+ * The block is deliberately scoped to `__STRICT_ANSI__`, so the plain `gnu*`
+ * build the project actually ships with is left completely untouched, and so
+ * MSVC (which does not define `__STRICT_ANSI__`) is unaffected.  Only the
+ * mandated `gcc`/`clang -std=c89 -pedantic-errors` CI builds are impacted. */
+#if defined(__STRICT_ANSI__)
+    #if defined(__GNUC__) || defined(__clang__) || defined(__INTEL_COMPILER)
+        #include <stddef.h>   /* size_t */
+        #include <stdarg.h>   /* va_list, va_copy */
+
+        /* `snprintf' / `vsnprintf' are C99.  Redeclare them against the libc
+           symbol; the prototype is identical to glibc/musl/ucrt, so no
+           conflicting-type error arises if <stdio.h> later exposes the same
+           function (it is not even declared under __STRICT_ANSI__). */
+        #if !defined(snprintf)
+            int snprintf(char *s, size_t n, const char *fmt, ...);
+        #endif
+        #if !defined(vsnprintf)
+            int vsnprintf(char *s, size_t n, const char *fmt, va_list ap);
+        #endif
+
+        /* `va_copy' is C99.  Every GCC/Clang provides the builtin regardless of
+           the selected language standard. */
+        #if !defined(va_copy)
+            #define va_copy(dst, src) __builtin_va_copy(dst, src)
+        #endif
+    #endif
+#endif
+
 /* There are many differeces between Linux and Windows.
  * And we defined things here to unify interfaces,
  * but it doesn't seem to be very good. */

@@ -59,3 +59,40 @@
 - 全回归：`test/*/run.sh` 70/70 通过。
 - fuzz：`dnsparser`+`dnsgenerator`+`iheader` 往返 4M 次，ASan+UBSan 零错误。
 - Windows/MinGW：未验证（本环境无 MSVC/MinGW 工具链；改动经 `__STRICT_ANSI__` 守卫，MSVC 不受影响）。
+
+---
+
+## Round 2（继续会话，深度审计 + 实证验证）
+
+### 覆盖清单（深度审阅 + 实证）
+
+| 模块 | 结论 | 检测手段 |
+|---|---|---|
+| `downloader.c` | 三后端（libcurl/wget/禁用）空 URL 短链、写回调短写、merge 的 fputc/fclose/截断、shell 引号拒绝、snprintf 边界、HTTP 4xx/5xx 拒绝、abort 中断重试环，均已硬化 | 人工 |
+| `cacheht.c` | rehash/删除/关停遍历、2D 空闲表 KeyNext/ValNext 截断回退、对齐、IsStructureSane 全字段校验（含环检测）已硬化 | 人工 + 压力 |
+| `simpleht.c` | Expand 回滚、size_t 乘法溢出校验、memcpy 长度、Enum/Find Next 链已硬化 | 人工 + 压力 |
+| `CacheHT_IsStructureSane` 调用点 | 已确认 `dnscache.c:163` 在加载路径调用，OOB-write-from-corrupted-cache 担忧已闭合 | 代码指纹核查 |
+
+### 实证压力测试（Round 2 新增，非提交，仅取证）
+- SimpleHT：随机 key/length/重复 key，insert+find+enum+free 共 **300k** 次（覆盖 Expand 全路径），ASan+UBSan 零错误。
+- CacheHT：在 1MB 映射上随机 chunk size insert/get/remove 共 **20k** 节点（覆盖 2D 空闲表复用、NodeChunk 增长、删除回链），ASan+UBSan 零错误。
+
+### Round 2 发现
+- 未发现新的 S1/S2 缺陷。已审阅模块均处于多轮硬化状态。
+- 唯一已落实修复仍是 R1 的 C89 严格构建缺陷（已提交 `ac199d3`）。
+
+### 未覆盖模块（继续 deferred）
+剩余约 40 模块：`array` `bst` `cachettlcrtl` `stringchunk` `ipchunk` `stablebuffer`
+`stringlist` `addresslist` `goodiplist` `ipmisc` `filter` `domainstatistic`
+`hosts` `dynamichosts` `logs` `mmgr` `main` `pipes`(Win) `winmsgque`(Win)
+`tcpm` `tcpfrontend` `udpm` `socketpuller` `timedtask` `ptimer`。多数已有专项修复测试，
+但本轮未逐行复核，列为待覆盖。
+
+### 验证手段与结果摘要（累计）
+- 严格编译（R1 修复后）：全部非 Windows 源文件零错误。
+- 全回归：70/70 通过。
+- 实证 fuzz/压力：DNS 往返 4M + SimpleHT 300k + CacheHT 20k，ASan+UBSan 全部零错误。
+- 终止计数：R1 有缺陷（已修），计数清零；R2 在已审阅子集内零新增，但覆盖未全覆盖 60 模块，
+  尚不计为“干净轮次”。需继续 R3 直至连续 3 轮独立复审零新增且覆盖充分。
+
+注：R2 未改动任何源文件，工作树与 R1 提交 `ac199d3` 一致。

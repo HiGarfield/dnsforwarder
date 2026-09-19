@@ -354,8 +354,16 @@ int32_t CacheHT_FindUnusedNode(CacheHT      *h,
     while( Subscript >= 0 )
     {
         CurNode = (Cht_Node *)Array_GetBySubscript(NodeChunk, Subscript);
+        /* FIX(#020): bound the free-list walk by the number of nodes -- a
+           KeyNext cycle (two entries pointing at each other; see the "Move
+           ahead" branch below, which stores a *stale* successor) would
+           otherwise spin for ever while the caller holds the cache write
+           lock. */
+        if( ++count > Array_GetUsed(NodeChunk) )
+        {
+            break;
+        }
         CurHead = (Cht_2DList *)CurNode;
-        ++count;
 
         if( PreHead != NULL &&
             PreHead->Count > CurHead->Count &&
@@ -530,11 +538,20 @@ static int CacheHT_AddTo2DList(CacheHT *h, int32_t SubScriptOfNode, Cht_Node *No
     Cht_Node    *CurNode = NULL;
 
     const Array *NodeChunk = &(h->NodeChunk);
+    int hops = 0;
+    int Used = Array_GetUsed(NodeChunk);
 
     while( Subscript >= 0 )
     {
         PreHead = CurHead;
         CurNode = (Cht_Node *)Array_GetBySubscript(NodeChunk, Subscript);
+        /* FIX(#020): bound the walk by the number of nodes -- a KeyNext cycle
+           would otherwise spin for ever while the caller holds the cache
+           write lock. */
+        if( ++hops > Used )
+        {
+            break;
+        }
         CurHead = (Cht_2DList *)CurNode;
         if( CurNode->Length == Node->Length )
         {

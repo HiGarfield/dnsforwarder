@@ -178,6 +178,11 @@ Hosts_SocketLoop(void *Unused)
     char OuterBuffer[SOCKET_CONTEXT_LENGTH];
     /* MsgContext *OuterMsgCtx = (MsgContext *)OuterBuffer; */
     IHeader *OuterHeader = (IHeader *)OuterBuffer;
+    /* The outer query is generated with `IHeader_Fill(..., ReturnHeader =
+       TRUE, ...)`, so `MsgContext_SendBack()` prefixes the datagram that
+       comes back on OuterSocket with a whole `IHeader`.  The DNS message
+       itself therefore starts behind it, NOT at OuterBuffer[0]. */
+    char *OuterEntity = OuterBuffer + sizeof(IHeader);
 
     int State;
     int ret = 0;
@@ -362,10 +367,15 @@ Hosts_SocketLoop(void *Unused)
                query identifier must equal the one we put into the outer
                query, otherwise this is a stray/replayed/unsolicited packet
                that must not consume the pending context.  State is checked
-               against DNS_HEADER_LENGTH so the two identifier octets are
-               guaranteed to have been received. */
-            if( State < DNS_HEADER_LENGTH ||
-                DNSGetQueryIdentifier(OuterBuffer) != OuterQueryIdentifier
+               so the identifier octets are guaranteed to have been received.
+               FIX(#001): the datagram carries an `IHeader` prefix (the outer
+               query is filled with ReturnHeader = TRUE), so the DNS header
+               lives at OuterEntity and not at OuterBuffer[0]; comparing the
+               first two octets of the IHeader (its Parent pointer) against
+               OuterQueryIdentifier never matched and every CName-redirect
+               response was dropped. */
+            if( State < (int)sizeof(IHeader) + DNS_HEADER_LENGTH ||
+                DNSGetQueryIdentifier(OuterEntity) != OuterQueryIdentifier
                 )
             {
                 continue;

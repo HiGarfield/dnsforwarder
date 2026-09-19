@@ -37,6 +37,14 @@ int IHeader_Fill(IHeader *h,
     DnsSimpleParser p;
     DnsSimpleParserIterator i;
 
+    /* FIX(#023): clear the whole header first.  IHeader is memcpy()'d around
+       and -- for the internal CName-redirect query (ReturnHeader = TRUE) --
+       written to a socket verbatim, so every byte of it has to be defined.
+       Timestamp, TcpLengthRaw and the struct padding used to stay
+       uninitialised: valgrind flags the sendto() that ships them, and the
+       bytes are whatever the (reused, malloc'd) receive buffer held before. */
+    memset(h, 0, sizeof(IHeader));
+
     h->Parent = NULL;
     h->RequestTcp = FALSE;
     h->EDNSEnabled = FALSE;

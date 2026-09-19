@@ -357,7 +357,13 @@ static int DaemonInit(void)
                 close(2);
             }
         }
-        umask(0); /* clear file mode creation mask */
+        /* FIX(#008): do not clear the umask.  With umask(0) everything the
+           daemon creates afterwards -- the log file, the cache file, the
+           downloaded hosts files, statistic.html -- is mode 0666, i.e. world
+           writable, so a local user could rewrite the hosts rules that drive
+           every DNS answer.  0022 keeps the owner-writable-only behaviour the
+           rest of the code assumes. */
+        umask(0022);
         return 0;
     }
 #endif /* _WIN32 */

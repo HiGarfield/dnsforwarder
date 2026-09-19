@@ -1013,6 +1013,16 @@ int DnsGenerator_Init(DnsGenerator *g,
         int FourCounts[4];
         int i;
 
+        /* FIX(#022): the four record counters that follow are read straight
+           out of `CopyFrom`, and so is the header copied into g->Buffer.  A
+           source shorter than a DNS header (a truncated request, or one the
+           caller measured wrongly) made those reads run past the end of the
+           source buffer. */
+        if( SourceLength < DNS_HEADER_LENGTH )
+        {
+            return -5;
+        }
+
         FourCounts[0] = DNSGetQuestionCount(CopyFrom);
         FourCounts[1] = DNSGetAnswerCount(CopyFrom);
         FourCounts[2] = Strip == TRUE ? 0 : DNSGetNameServerCount(CopyFrom);

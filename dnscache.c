@@ -557,6 +557,15 @@ static int DNSCache_AddAItemToCache(DnsSimpleParserIterator *i,
 
     const CtrlContent   *TtlContent;
 
+    /* FIX(#013): `Item` is the *cache key*, i.e. "name<SP>HEXTYPE<SP>HEXCLASS"
+       (see the comment above this function), but `CacheTtlCrtl_Get()` looks a
+       rule up by *domain*.  Handing it the whole triplet made every concrete
+       `CacheControl <DOMAIN> ...` rule unmatchable (the suffix walk tried
+       "www.foo.com 1 1", "foo.com 1 1", "com 1 1" -- never "foo.com"), so
+       the per-domain TTL policy was silently ignored on this path.  Keep a
+       copy of the plain record name for the TTL lookup. */
+    char            RecordDomain[256];
+
     /* Assign start byte of the cache */
     Buffer[0] = CACHE_START;
 
@@ -565,6 +574,9 @@ static int DNSCache_AddAItemToCache(DnsSimpleParserIterator *i,
     {
         return -1;
     }
+
+    strncpy(RecordDomain, Item, sizeof(RecordDomain) - 1);
+    RecordDomain[sizeof(RecordDomain) - 1] = '\0';
 
     /* Jump just over the name, right at '\0' */
     BufferItr = Item + strlen(Item);
@@ -633,7 +645,7 @@ static int DNSCache_AddAItemToCache(DnsSimpleParserIterator *i,
                     break;
 
                 case TTL_CTRL_INFECTION_PASSIVLY:
-                    TtlContent = CacheTtlCrtl_Get(TtlCtrl, Item);
+                    TtlContent = CacheTtlCrtl_Get(TtlCtrl, RecordDomain);
                     if( TtlContent == NULL )
                     {
                         TtlContent = InfectedTtlContent;
@@ -641,11 +653,11 @@ static int DNSCache_AddAItemToCache(DnsSimpleParserIterator *i,
                     break;
 
                 case TTL_CTRL_INFECTION_NONE:
-                    TtlContent = CacheTtlCrtl_Get(TtlCtrl, Item);
+                    TtlContent = CacheTtlCrtl_Get(TtlCtrl, RecordDomain);
                     break;
             }
         } else {
-            TtlContent = CacheTtlCrtl_Get(TtlCtrl, Item);
+            TtlContent = CacheTtlCrtl_Get(TtlCtrl, RecordDomain);
         }
 
         if( TtlContent != NULL )

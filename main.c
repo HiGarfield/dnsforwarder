@@ -334,10 +334,30 @@ static int DaemonInit(void)
             exit(0);
         }
         setsid();
+        /* FIX(#007): the old code just closed 0/1/2.  The next descriptors
+           the process opens then *become* stdin/stdout/stderr -- the log
+           file, and above all the UDP/TCP server sockets created right after
+           this in Log_Init()/UdpFrontend_Init() -- so any printf/perror (or
+           library write to stderr) would spray text straight into a DNS
+           socket.  Re-open them on /dev/null instead. */
+        {
+            int fd = open("/dev/null", O_RDWR);
+            if( fd >= 0 )
+            {
+                dup2(fd, 0);
+                dup2(fd, 1);
+                dup2(fd, 2);
+                if( fd > 2 )
+                {
+                    close(fd);
+                }
+            } else {
+                close(0);
+                close(1);
+                close(2);
+            }
+        }
         umask(0); /* clear file mode creation mask */
-        close(0);
-        close(1);
-        close(2);
         return 0;
     }
 #endif /* _WIN32 */

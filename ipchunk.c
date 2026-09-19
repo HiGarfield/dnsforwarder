@@ -145,6 +145,22 @@ int IpSet_Parse(const char *s, const char *p, IpSet *ipSet)
 
     if( p != NULL && *p )
     {
+        /* FIX(#017): atoi() reports "no digits" as 0, so `BlockIP
+           10.0.0.0/abc` (or a bare trailing `/`) silently became a /0 entry,
+           and PrefixBits == 0 matches *every* address -- a single typo in the
+           configuration would then discard (or rewrite) every single DNS
+           response.  Require the prefix to be all digits, exactly like the
+           negative and over-long cases already handled below. */
+        const char *q = p;
+        while( *q >= '0' && *q <= '9' )
+        {
+            ++q;
+        }
+        if( *q != '\0' )
+        {
+            return -1;
+        }
+
         n = atoi(p);
         if( n < 0 )
         {

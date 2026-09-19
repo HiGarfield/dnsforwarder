@@ -408,15 +408,17 @@ Hosts_SocketLoop(void *Unused)
             DNSSetQueryIdentifier(InnerHeader + 1, QueryIdentifier);
 
             /* The response was recvfrom()'d into the *beginning* of
-               OuterBuffer (OuterBuffer[0 .. State)); the former `OuterEntity'
-               argument pointed at the stale query we sent, not at the
-               response.  Use OuterBuffer so the recursed response is actually
-               parsed, and the pre-captured RecursedDomain (not the bytes of
-               the response, which may have overwritten OuterHeader->Domain). */
+               OuterBuffer, behind the IHeader that SendBack() prefixed, so
+               the DNS message occupies [OuterEntity, OuterBuffer + State).
+               FIX(#002): pass OuterEntity (and its own length) instead of
+               OuterBuffer, otherwise the IHeader is parsed as a DNS message
+               and the recursed answer is never assembled.  The pre-captured
+               RecursedDomain is used (not the bytes of the response, which
+               may have overwritten OuterHeader->Domain). */
             if( HostsUtils_CombineRecursedResponse((MsgContext *)InnerBuffer,
                                                    SOCKET_CONTEXT_LENGTH,
-                                                   OuterBuffer,
-                                                   State,
+                                                   OuterEntity,
+                                                   State - (int)sizeof(IHeader),
                                                    RecursedDomain
                                                    )
                 != 0 )

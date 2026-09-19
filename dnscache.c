@@ -490,8 +490,18 @@ static Cht_Node *DNSCache_FindFromCache(const char *Content, size_t Length, Cht_
                file. A truncated or corrupted file could carry an Offset that
                points past the end of the mapping; reject such a node as a
                cache miss instead of reading out of bounds. */
+            /* FIX(#015): staying inside the mapping is not enough -- the
+               comparison must not run past the *node's own* record either.
+               `Length` is the key+data length of the record we are looking
+               for, and it can exceed this node's UsedLength, in which case
+               memcmp() read the padding and the neighbouring record and
+               produced false hits (an A record answered with another
+               record's data) or false misses (a valid entry never found).
+               Every node is rejected on the same condition in
+               DNSCache_GetRawRecordsFromCache(). */
             if( Node->Offset >= 0 &&
                 (uint32_t)Node->Offset + 1 + (uint32_t)Length <= (uint32_t)CacheSize &&
+                Node->UsedLength > Length &&
                 memcmp(Content, MapStart + Node->Offset + 1, Length) == 0
               )
             {

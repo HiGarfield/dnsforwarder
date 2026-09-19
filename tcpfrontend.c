@@ -458,7 +458,15 @@ int TcpFrontend_Init(ConfigFileInfo *ConfigInfo, BOOL StartWork)
            it. Established connections are registered by TcpFrontend_Work with
            the real family, which routes them to the recv() branch. */
         ListeningState.Addr.family = AF_UNSPEC;
-        Frontend.Add(&Frontend, sock, &ListeningState, sizeof(ListeningState));
+        /* FIX(#012): same as the UDP frontend -- an ignored failure leaked
+           the listening descriptor (it is not in the puller, so
+           TcpFrontend_Cleanup never closes it). */
+        if( Frontend.Add(&Frontend, sock, &ListeningState, sizeof(ListeningState)) != 0 )
+        {
+            ERRORMSG("Failed to register TCP interface %s .\n", One);
+            CLOSE_SOCKET(sock);
+            continue;
+        }
         INFO("TCP interface %s opened.\n", One);
         ++Count;
     }

@@ -80,7 +80,13 @@ static struct sockaddr_in *CheckAList(struct sockaddr_in *Ips, int Count)
            which is dereferenced once below (`ret = *Fastest'). Hence the
            payload has to be the pointer to Ips[i], not Ips[i] itself. */
         Cur = &(Ips[i]);
-        p.Add(&p, skt, &Cur, sizeof(Cur));
+        /* FIX(#012): an ignored failure left `skt` open and unowned --
+           SocketPool_Free() only closes what is in the pool, so every probe
+           socket created here leaked one descriptor. */
+        if( p.Add(&p, skt, &Cur, sizeof(Cur)) != 0 )
+        {
+            CLOSE_SOCKET(skt);
+        }
     }
 
     if( p.Select(&p, &Time, (void **)&Fastest, FALSE, TRUE, NULL) == INVALID_SOCKET )

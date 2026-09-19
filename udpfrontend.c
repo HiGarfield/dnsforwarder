@@ -198,7 +198,16 @@ int UdpFrontend_Init(ConfigFileInfo *ConfigInfo, BOOL StartWork)
             Ipv6_Enabled = TRUE;
         }
 
-        Frontend.Add(&Frontend, sock, &f, sizeof(sa_family_t));
+        /* FIX(#012): the return value was ignored.  Add() fails for a
+           descriptor >= FD_SETSIZE (or on OOM); the listening socket then
+           belonged to nobody -- never closed, never select()ed -- leaking
+           the descriptor and silently serving nothing on this interface. */
+        if( Frontend.Add(&Frontend, sock, &f, sizeof(sa_family_t)) != 0 )
+        {
+            ERRORMSG("Failed to register UDP interface %s .\n", One);
+            CLOSE_SOCKET(sock);
+            continue;
+        }
         INFO("UDP interface %s opened.\n", One);
         ++Count;
     }

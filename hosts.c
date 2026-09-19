@@ -33,6 +33,13 @@ static volatile BOOL    PullerReady = FALSE;
    matched to the pending context. */
 static uint16_t OuterQueryIdentifier = 0;
 
+/* Upper bound on the length of one CName redirection chain (FIX(#021)). */
+#define HOSTS_MAX_CNAME_DEPTH   8
+
+/* Number of CName hops of the chain currently being resolved.  Only
+Hosts_SocketLoop touches it, so no locking is needed. */
+static int RecurseDepth = 0;
+
 BOOL Hosts_TypeExisting(const char *Domain, HostsRecordType Type)
 {
     return StaticHosts_TypeExisting(Domain, Type) ||
@@ -253,6 +260,8 @@ Hosts_SocketLoop(void *Unused)
             }
             TimeLimit = LongTime;
             Context.Sweep(&Context, Hosts_SweepCallback, (void *)OuterBuffer);
+            /* No recursion can be in progress across a select() timeout. */
+            RecurseDepth = 0;
         } else if( Pulled == InnerSocket )
         {
             /* Recursive query */
@@ -261,6 +270,23 @@ Hosts_SocketLoop(void *Unused)
             uint16_t NewIdentifier;
 
             TimeLimit = ShortTime;
+
+            /* FIX(#021): a CName chain that closes on itself (`a CNAME b`
+               together with `b CNAME a`, or `a CNAME a`) ping-pongs for ever:
+               Hosts_Try() keeps answering HOSTSUTILS_TRY_RECURSED, this thread
+               re-injects the query and never sends anything upstream, so the
+               daemon burns 100% CPU and Context grows without bound (it is
+               only swept on select() timeout, which never comes).  Hosts files
+               can be fetched from a URL, so the chain is attacker controlled.
+               Hosts_SocketLoop is the only thread that runs this, so a plain
+               static counter is enough: consecutive InnerSocket events are
+               exactly the hops of one chain. */
+            if( ++RecurseDepth > HOSTS_MAX_CNAME_DEPTH )
+            {
+                ERRORMSG("CName redirection chain too long, dropped.\n");
+                RecurseDepth = 0;
+                continue;
+            }
 
             State = recvfrom(InnerSocket,
                              InnerBuffer, /* Receiving a header */
@@ -327,6 +353,9 @@ Hosts_SocketLoop(void *Unused)
             uint16_t QueryIdentifier;
 
             TimeLimit = ShortTime;
+
+            /* The pending chain has been answered (or abandoned). */
+            RecurseDepth = 0;
 
             /* Everything that identifies the pending query -- the parent
                context pointer and the recursed domain -- lives inside

@@ -115,8 +115,15 @@ static int IPMisc_Process(IPMisc *m,
         RowDataPos = i.RowData(&i);
         /* The RDATA must stay inside the DNS message buffer. Otherwise the
            lookup below reads out of bounds, and a SUBSTITUTE action would
-           write out of bounds. */
-        if( RowDataPos == NULL ||
+           write out of bounds.
+           FIX(#003): reaching the end of the message is not enough -- the
+           record's own RDLENGTH has to hold the whole address as well.  An
+           A record with RDLENGTH 2 (or an AAAA with 8) is accepted by the
+           parser, so the old test happily let IpChunk_Find() read -- and
+           SUBSTITUTE write -- the first octets of the *next* record, which
+           both misclassifies the address and corrupts the response. */
+        if( i.DataLength < DataLength ||
+            RowDataPos == NULL ||
             (const char *)RowDataPos + DataLength > DNSPackage + PackageLength )
         {
             continue;

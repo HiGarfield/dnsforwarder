@@ -354,12 +354,17 @@ int32_t CacheHT_FindUnusedNode(CacheHT      *h,
     while( Subscript >= 0 )
     {
         CurNode = (Cht_Node *)Array_GetBySubscript(NodeChunk, Subscript);
+        /* FIX(#019): Array_GetBySubscript() returns NULL for an out-of-range
+           subscript, and the free-list KeyNext chain is read back verbatim
+           from the on-disk cache file.  The loader's sanity check cannot
+           cover every corruption, and a NULL here is dereferenced two lines
+           below. */
         /* FIX(#020): bound the free-list walk by the number of nodes -- a
            KeyNext cycle (two entries pointing at each other; see the "Move
            ahead" branch below, which stores a *stale* successor) would
            otherwise spin for ever while the caller holds the cache write
            lock. */
-        if( ++count > Array_GetUsed(NodeChunk) )
+        if( CurNode == NULL || ++count > Array_GetUsed(NodeChunk) )
         {
             break;
         }
@@ -548,7 +553,9 @@ static int CacheHT_AddTo2DList(CacheHT *h, int32_t SubScriptOfNode, Cht_Node *No
         /* FIX(#020): bound the walk by the number of nodes -- a KeyNext cycle
            would otherwise spin for ever while the caller holds the cache
            write lock. */
-        if( ++hops > Used )
+        /* FIX(#019): a NULL subscript has to break out of the walk too, it
+           would be dereferenced on the next line. */
+        if( CurNode == NULL || ++hops > Used )
         {
             break;
         }
@@ -561,6 +568,14 @@ static int CacheHT_AddTo2DList(CacheHT *h, int32_t SubScriptOfNode, Cht_Node *No
         }
 
         Subscript = CurHead->KeyNext;
+    }
+
+    /* Any abnormal exit (NULL subscript, over-long chain) leaves a bogus
+       subscript behind; the code below tests `Subscript == -1` for exactly
+       "no group of this length exists yet", so restore the sentinel. */
+    if( CurNode == NULL || CurNode->Length != Node->Length )
+    {
+        Subscript = -1;
     }
 
 #if 1

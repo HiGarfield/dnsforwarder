@@ -425,6 +425,18 @@ BOOL StringChunk_Domain_Match_NoWildCard(StringChunk    *dl,
         return FALSE;
     }
 
+    /* FIX(#004): `Domain + 1` below is only meaningful when there is at least
+       one character before the terminator.  An empty query name (a request
+       with QDCOUNT == 0 leaves IHeader.Domain set to "") made strchr() start
+       scanning one past the terminating NUL, i.e. into whatever follows the
+       string -- stale bytes of the previously served domain -- so a disabled
+       domain could be matched from garbage, or the scan could walk out of the
+       caller's buffer.  An empty name can never name a domain: reject it. */
+    if( Domain == NULL || Domain[0] == '\0' )
+    {
+        return FALSE;
+    }
+
     if( StringChunk_Match_NoWildCard(dl, Domain, HashValue, Data, cb, Expected) == TRUE )
     {
         return TRUE;

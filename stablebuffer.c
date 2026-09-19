@@ -44,8 +44,13 @@ static StableBuffer_MetaInfo *Realloc(Array *MetaInfo, int DataLength)
        the byte count representable in both. */
     int Product;
 
+    /* FIX(#016): ROUND_UP(v, b) is ROUND_DOWN(v + b - 1, b), so the guard
+       below has to leave room for the `+ (sizeof(void *) - 1)` as well.  A
+       Product within 7 of INT_MAX made that addition overflow (signed
+       overflow, UB), producing a negative Amount that SafeMalloc() then
+       turned into an enormous size_t. */
     if( BLOCK_ORDER <= 0 || DataLength <= 0 ||
-        DataLength > INT_MAX / BLOCK_ORDER )
+        DataLength > (INT_MAX - (int)sizeof(void *)) / BLOCK_ORDER )
     {
         return NULL;
     }

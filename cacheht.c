@@ -124,6 +124,10 @@ BOOL CacheHT_IsStructureSane(const CacheHT *h,
     size_t SlotBytes;
     size_t NodeBytes;
     int loop;
+    /* No naked block: `hops' and `sub' are used by both chain walks below,
+       so they are declared at the head of this block (C89). */
+    int hops;
+    int sub;
 
     if( BaseAddr == NULL || CacheSize <= 0 || DataOffsetMin < 0 )
     {
@@ -219,8 +223,6 @@ BOOL CacheHT_IsStructureSane(const CacheHT *h,
     {
         const Cht_Slot *Slot =
             (const Cht_Slot *)(SlotBase + sizeof(Cht_Slot) * (size_t)loop);
-        int hops = 0;
-        int sub;
 
         if( Slot->Next < -1 || Slot->Next >= NodeChunk->Used )
         {
@@ -234,6 +236,7 @@ BOOL CacheHT_IsStructureSane(const CacheHT *h,
            the corrupted file.  A chain without repetition can hold at most
            NodeChunk->Used distinct nodes, so more hops than that prove a
            cycle. */
+        hops = 0;
         sub = Slot->Next;
         while( sub >= 0 )
         {
@@ -261,42 +264,40 @@ BOOL CacheHT_IsStructureSane(const CacheHT *h,
        crashing on a merely-corrupted cache file.  Walk the free list
        explicitly: every hop must name a real node (KeyNext and ValNext
        alike) and the chain must terminate before it can cycle. */
+    hops = 0;
+    sub = h->Free2DList;
+
+    while( sub >= 0 )
     {
-        int hops = 0;
-        int sub = h->Free2DList;
+        const Cht_Node *N;
 
-        while( sub >= 0 )
+        /* A valid chain visits each node at most once; more hops than
+           nodes means a cycle. */
+        if( ++hops > NodeChunk->Used )
         {
-            const Cht_Node *N;
-
-            /* A valid chain visits each node at most once; more hops than
-               nodes means a cycle. */
-            if( ++hops > NodeChunk->Used )
-            {
-                return FALSE;
-            }
-
-            if( sub >= NodeChunk->Used )
-            {
-                /* KeyNext names a node the chunk does not hold. */
-                return FALSE;
-            }
-
-            N = (const Cht_Node *)(NodeBase - sizeof(Cht_Node) * (size_t)sub);
-
-            /* KeyNext (overlaid on Node->Slot) and ValNext (overlaid on
-               Node->Next) must both name real nodes or terminate the chain.
-               ValNext additionally holds for a node that is not (yet) reachable
-               from Free2DList but would become so later, so requiring both to
-               stay inside the chunk is the safe bound. */
-            if( N->Slot < -1 || N->Slot >= NodeChunk->Used ||
-                N->Next < -1 || N->Next >= NodeChunk->Used )
-            {
-                return FALSE;
-            }
-
-            sub = N->Slot;  /* follow KeyNext */
+            return FALSE;
         }
+
+        if( sub >= NodeChunk->Used )
+        {
+            /* KeyNext names a node the chunk does not hold. */
+            return FALSE;
+        }
+
+        N = (const Cht_Node *)(NodeBase - sizeof(Cht_Node) * (size_t)sub);
+
+        /* KeyNext (overlaid on Node->Slot) and ValNext (overlaid on
+           Node->Next) must both name real nodes or terminate the chain.
+           ValNext additionally holds for a node that is not (yet) reachable
+           from Free2DList but would become so later, so requiring both to
+           stay inside the chunk is the safe bound. */
+        if( N->Slot < -1 || N->Slot >= NodeChunk->Used ||
+            N->Next < -1 || N->Next >= NodeChunk->Used )
+        {
+            return FALSE;
+        }
+
+        sub = N->Slot;  /* follow KeyNext */
     }
 
     return TRUE;
@@ -357,13 +358,12 @@ int32_t CacheHT_FindUnusedNode(CacheHT      *h,
         /* FIX(#019): Array_GetBySubscript() returns NULL for an out-of-range
            subscript, and the free-list KeyNext chain is read back verbatim
            from the on-disk cache file.  The loader's sanity check cannot
-           cover every corruption, and a NULL here is dereferenced two lines
-           below. */
-        /* FIX(#020): bound the free-list walk by the number of nodes -- a
-           KeyNext cycle (two entries pointing at each other; see the "Move
-           ahead" branch below, which stores a *stale* successor) would
-           otherwise spin for ever while the caller holds the cache write
-           lock. */
+           cover every corruption, and once the chain is walked at run time a
+           NULL here is dereferenced two lines below.
+           FIX(#020): also bound the walk by the number of nodes -- a KeyNext
+           cycle (two entries pointing at each other, see the "Move ahead"
+           branch below, which stores a *stale* successor) would otherwise
+           spin forever while the caller holds the cache write lock. */
         if( CurNode == NULL || ++count > Array_GetUsed(NodeChunk) )
         {
             break;
@@ -543,18 +543,20 @@ static int CacheHT_AddTo2DList(CacheHT *h, int32_t SubScriptOfNode, Cht_Node *No
     Cht_Node    *CurNode = NULL;
 
     const Array *NodeChunk = &(h->NodeChunk);
-    int hops = 0;
-    int Used = Array_GetUsed(NodeChunk);
+    /* No naked block: the walk counters are declared at the head of this
+       block (C89). */
+    int hops;
+    int Used;
+
+    /* FIX(#019)/FIX(#020): see CacheHT_FindUnusedNode -- guard against a NULL
+       subscript and against a KeyNext cycle in the free list. */
+    hops = 0;
+    Used = Array_GetUsed(NodeChunk);
 
     while( Subscript >= 0 )
     {
         PreHead = CurHead;
         CurNode = (Cht_Node *)Array_GetBySubscript(NodeChunk, Subscript);
-        /* FIX(#020): bound the walk by the number of nodes -- a KeyNext cycle
-           would otherwise spin for ever while the caller holds the cache
-           write lock. */
-        /* FIX(#019): a NULL subscript has to break out of the walk too, it
-           would be dereferenced on the next line. */
         if( CurNode == NULL || ++hops > Used )
         {
             break;
@@ -570,9 +572,10 @@ static int CacheHT_AddTo2DList(CacheHT *h, int32_t SubScriptOfNode, Cht_Node *No
         Subscript = CurHead->KeyNext;
     }
 
-    /* Any abnormal exit (NULL subscript, over-long chain) leaves a bogus
-       subscript behind; the code below tests `Subscript == -1` for exactly
-       "no group of this length exists yet", so restore the sentinel. */
+    /* Any abnormal exit (NULL subscript, over-long chain) means "no group
+       of this length exists yet"; the code below tests `Subscript == -1`
+       for exactly that, so restore the sentinel instead of leaving the
+       bogus subscript in place. */
     if( CurNode == NULL || CurNode->Length != Node->Length )
     {
         Subscript = -1;

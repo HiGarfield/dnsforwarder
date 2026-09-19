@@ -147,6 +147,10 @@ TcpFrontend_Work(void *Unused)
         uint16_t TCPLength;
 
         char Agent[sizeof(Header->Agent)];
+        /* No naked block: the dispatch below uses these, declared at the head
+           of the loop body (C89). */
+        int EntityLength;
+        sa_family_t Family;
 
         sock = Frontend.Select(&Frontend,
                                NULL,
@@ -293,46 +297,44 @@ TcpFrontend_Work(void *Unused)
         /* A whole message. Move it into the dispatch buffer and get the
            connection ready for the next one; TCP clients are allowed to
            pipeline queries over the same connection. */
+        EntityLength = State->BodyLength;
+        Family = State->Addr.family;
+
+        memcpy(Entity, State->Body, EntityLength);
+
+        State->PrefixRead = 0;
+        State->BodyRead = 0;
+        State->BodyLength = 0;
+
+        /* `IHeader_Fill` returns before filling in
+           `SendBackSocket` and `EntityLength` when the message
+           is malformed. Since `ReceiveBuffer` is shared by all
+           clients, sending such a context on would reply to the
+           previously served client with stale data. */
+        if( IHeader_Fill(Header,
+                         FALSE,
+                         Entity,
+                         EntityLength,
+                         NULL,
+                         sock_c,
+                         Family,
+                         Agent
+                         )
+            != 0 )
         {
-            int EntityLength = State->BodyLength;
-            sa_family_t Family = State->Addr.family;
-
-            memcpy(Entity, State->Body, EntityLength);
-
-            State->PrefixRead = 0;
-            State->BodyRead = 0;
-            State->BodyLength = 0;
-
-            /* `IHeader_Fill` returns before filling in
-               `SendBackSocket` and `EntityLength` when the message
-               is malformed. Since `ReceiveBuffer` is shared by all
-               clients, sending such a context on would reply to the
-               previously served client with stale data. */
-            if( IHeader_Fill(Header,
-                             FALSE,
-                             Entity,
-                             EntityLength,
-                             NULL,
-                             sock_c,
-                             Family,
-                             Agent
-                             )
-                != 0 )
-            {
-                INFO("Malformed message received from TCP client %s.\n",
-                     Agent
-                     );
-                goto DropClient;
-            }
-
-            /* The query now belongs to a module worker thread that will send the
-               answer back on this very socket. Track it so the lifecycle below
-               (and the close in TcpFrontend_ClientGone) does not tear the
-               descriptor down while the module is still using it. */
-            TcpFrontend_MarkDispatched(sock_c);
-
-            MMgr_Send(ReceiveBuffer, SOCKET_CONTEXT_LENGTH);
+            INFO("Malformed message received from TCP client %s.\n",
+                 Agent
+                 );
+            goto DropClient;
         }
+
+        /* The query now belongs to a module worker thread that will send the
+           answer back on this very socket. Track it so the lifecycle below
+           (and the close in TcpFrontend_ClientGone) does not tear the
+           descriptor down while the module is still using it. */
+        TcpFrontend_MarkDispatched(sock_c);
+
+        MMgr_Send(ReceiveBuffer, SOCKET_CONTEXT_LENGTH);
 
         continue;
 

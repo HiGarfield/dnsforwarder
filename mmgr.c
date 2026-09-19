@@ -760,6 +760,9 @@ static int Modules_Load(ConfigFileInfo *ConfigInfo)
     ModuleMap *NewModuleMap;
     ThreadHandle th;
     int ret;
+    /* No naked block: the map swap below uses this, declared at the head of
+       the function (C89). */
+    ModuleMap *OldModuleMap;
 
     CurrConfigInfo = ConfigInfo;
 
@@ -822,44 +825,40 @@ static int Modules_Load(ConfigFileInfo *ConfigInfo)
         goto ModulesFree;
     }
 
-    {
-        ModuleMap *OldModuleMap;
+    RWLock_WrLock(ModulesLock);
+    OldModuleMap = CurModuleMap;
+    CurModuleMap = NewModuleMap;   /* publish the new map first */
+    RWLock_UnWLock(ModulesLock);   /* then release the lock */
 
-        RWLock_WrLock(ModulesLock);
-        OldModuleMap = CurModuleMap;
-        CurModuleMap = NewModuleMap;   /* publish the new map first */
-        RWLock_UnWLock(ModulesLock);   /* then release the lock */
+    /* Spawn the cleanup thread only after publishing the new map and
+       dropping the lock.  Modules_SafeCleanup re-acquires ModulesLock at
+       its end as a barrier to drain any in-flight MMgr_Send readers that
+       still reference OldModuleMap; if we held the lock here the new
+       thread would block forever on that wrlock (it runs in a different
+       thread and the rwlock is not recursive), stalling every reload and
+       every reader behind the writer-priority lock.
 
-        /* Spawn the cleanup thread only after publishing the new map and
-           dropping the lock.  Modules_SafeCleanup re-acquires ModulesLock at
-           its end as a barrier to drain any in-flight MMgr_Send readers that
-           still reference OldModuleMap; if we held the lock here the new
-           thread would block forever on that wrlock (it runs in a different
-           thread and the rwlock is not recursive), stalling every reload and
-           every reader behind the writer-priority lock.
-
-           CREATE_THREAD behaves differently per platform: on POSIX it expands
-           to pthread_create() and its value is the int return code (0 on
-           success), while `th` receives the thread id; on Windows it assigns
-           the HANDLE to `th` and its value is that HANDLE.  Capture/check
-           accordingly so the code compiles and behaves on both. */
+       CREATE_THREAD behaves differently per platform: on POSIX it expands
+       to pthread_create() and its value is the int return code (0 on
+       success), while `th` receives the thread id; on Windows it assigns
+       the HANDLE to `th` and its value is that HANDLE.  Capture/check
+       accordingly so the code compiles and behaves on both. */
 #ifdef _WIN32
-        CREATE_THREAD(Modules_SafeCleanupAndFree, OldModuleMap, th);
-        if( th == NULL_THREAD )
-        {
-            ERRORMSG("Failed to start cleanup thread.\n");
-            return -99;
-        }
-#else
-        ret = CREATE_THREAD(Modules_SafeCleanupAndFree, OldModuleMap, th);
-        if( ret != 0 )
-        {
-            ERRORMSG("Failed to start cleanup thread: %d\n", ret);
-            return -99;
-        }
-#endif
-        DETACH_THREAD(th);
+    CREATE_THREAD(Modules_SafeCleanupAndFree, OldModuleMap, th);
+    if( th == NULL_THREAD )
+    {
+        ERRORMSG("Failed to start cleanup thread.\n");
+        return -99;
     }
+#else
+    ret = CREATE_THREAD(Modules_SafeCleanupAndFree, OldModuleMap, th);
+    if( ret != 0 )
+    {
+        ERRORMSG("Failed to start cleanup thread: %d\n", ret);
+        return -99;
+    }
+#endif
+    DETACH_THREAD(th);
 
     INFO("Loading GroupFile(s) completed.\n");
 

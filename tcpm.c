@@ -222,6 +222,9 @@ static int TcpM_Connect(TcpM *m, int ServerIndex, BOOL IsProxy)
     SocketPuller **Pullers, *Puller;
     int i, NumOfServers, Shift, idx, n = 0;
     TcpContext *TcpCtx, TcpCtxNew;
+    /* No naked block: hoisted to the head of the function (C89).  Keeping it
+       `static' preserves the "seed only once" semantics. */
+    static BOOL Seeded = FALSE;
 
     if( m->SocksProxies == NULL || IsProxy == FALSE )
     {
@@ -248,13 +251,10 @@ static int TcpM_Connect(TcpM *m, int ServerIndex, BOOL IsProxy)
        every call re-initializes the sequence with the same second-resolution
        value, so all connections made within one second pick the same Shift
        and upstream rotation collapses to a fixed choice. */
+    if( Seeded == FALSE )
     {
-        static BOOL Seeded = FALSE;
-        if( Seeded == FALSE )
-        {
-            srand((unsigned int)time(NULL));
-            Seeded = TRUE;
-        }
+        srand((unsigned int)time(NULL));
+        Seeded = TRUE;
     }
     Shift = rand();
 
@@ -569,6 +569,9 @@ static int TcpM_Send_Actual(TcpM *m, MsgContext *MsgCtx, int SingleServerIndex)
         SOCKET s;
         int Err;
         struct timeval TimeOut = TimeOut_Const;
+        /* No naked block: the copy of the puller's context is declared here,
+           at the head of the loop body (C89). */
+        TcpContext Ctx;
 
         s = p->Select(p, &TimeOut, (void **)&TcpCtx, FALSE, TRUE, &Err);
 
@@ -589,8 +592,7 @@ static int TcpM_Send_Actual(TcpM *m, MsgContext *MsgCtx, int SingleServerIndex)
            list, where it can be reused by a concurrent Add.  Copy it out so
            the references below are not dangling (use-after-free / data race).
            This mirrors the fix at TcpM_Works() that introduced a local Ctx. */
-        {
-            TcpContext Ctx = *TcpCtx;
+        Ctx = *TcpCtx;
 
         if( m->SocksProxies != NULL && Ctx.Queried == 0 )
         {
@@ -636,8 +638,6 @@ static int TcpM_Send_Actual(TcpM *m, MsgContext *MsgCtx, int SingleServerIndex)
         Ctx.MsgCtxHash = h->HashValue;
         Ctx.MsgCtx = MsgCtx;
         m->Puller.Add(&(m->Puller), s, &Ctx, sizeof(TcpContext));
-
-        }   /* end of copied TcpCtx scope */
 
         n++;
     }
@@ -942,6 +942,9 @@ TcpM_Works(TcpM *m)
             SocketPuller *p2;
             char *PartialData;
             TcpContext Ctx;
+            /* No naked block: the length-prefix read below uses these (C89). */
+            int Got;
+            char *Cur;
 
             /* `TcpCtx` points at the payload of a BST node owned by the
                puller `p`. `p->Del` below returns that node to `p`'s free
@@ -960,45 +963,43 @@ TcpM_Works(TcpM *m)
                two bytes can arrive in separate segments, so keep reading until
                both are present instead of treating a single-byte read as bad
                data (which previously closed otherwise-valid connections). */
-            {
-                int Got = 0;
-                char *Cur = (char *)&TCPLength;
+            Got = 0;
+            Cur = (char *)&TCPLength;
 
-                while( Got < 2 )
+            while( Got < 2 )
+            {
+                State = TcpM_RecvWrapper(s, Cur, 2 - Got);
+                if( State < 1 )
                 {
-                    State = TcpM_RecvWrapper(s, Cur, 2 - Got);
-                    if( State < 1 )
+                    /* If Server force closed the keep-alive SOCKET: */
+                    IHeader *Header2 = (IHeader *)Ctx.MsgCtx;
+                    if( Ctx.Queried > 1 && Header2 != NULL && *(Header2->Domain) != 0 &&
+                        Ctx.MsgCtxQid == DNSGetQueryIdentifier(Header2 + 1) &&
+                        Ctx.MsgCtxHash == Header2->HashValue
+                        )
                     {
-                        /* If Server force closed the keep-alive SOCKET: */
-                        IHeader *Header2 = (IHeader *)Ctx.MsgCtx;
-                        if( Ctx.Queried > 1 && Header2 != NULL && *(Header2->Domain) != 0 &&
-                            Ctx.MsgCtxQid == DNSGetQueryIdentifier(Header2 + 1) &&
-                            Ctx.MsgCtxHash == Header2->HashValue
-                            )
-                        {
-                            INFO("TCP retrying for %s ...\n", Header2->Domain);
-                            /* TcpM_Send_Actual mutates the shared, non-thread-safe
-                               m->Puller / m->QueryPuller (and the per-module context
-                               BST). The frontend thread does the same under m->Lock
-                               (see TcpM_Send and the listen-socket path above), so
-                               this retry must be serialized too; otherwise the two
-                               threads race on the puller's fd_set / internal arrays.
-                               TcpM_Send_Actual does NOT take the lock itself. */
-                            EFFECTIVE_LOCK_GET(m->Lock);
-                            TcpM_Send_Actual(m, Ctx.MsgCtx, Ctx.ServerIndex);
-                            EFFECTIVE_LOCK_RELEASE(m->Lock);
-                        }
-                        CLOSE_SOCKET(s);
-                        Got = -1;
-                        break;
+                        INFO("TCP retrying for %s ...\n", Header2->Domain);
+                        /* TcpM_Send_Actual mutates the shared, non-thread-safe
+                           m->Puller / m->QueryPuller (and the per-module context
+                           BST). The frontend thread does the same under m->Lock
+                           (see TcpM_Send and the listen-socket path above), so
+                           this retry must be serialized too; otherwise the two
+                           threads race on the puller's fd_set / internal arrays.
+                           TcpM_Send_Actual does NOT take the lock itself. */
+                        EFFECTIVE_LOCK_GET(m->Lock);
+                        TcpM_Send_Actual(m, Ctx.MsgCtx, Ctx.ServerIndex);
+                        EFFECTIVE_LOCK_RELEASE(m->Lock);
                     }
-                    Cur += State;
-                    Got += State;
+                    CLOSE_SOCKET(s);
+                    Got = -1;
+                    break;
                 }
-                if( Got < 0 )
-                {
-                    continue;
-                }
+                Cur += State;
+                Got += State;
+            }
+            if( Got < 0 )
+            {
+                continue;
             }
 
             TCPLength = ntohs(TCPLength);

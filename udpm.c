@@ -144,6 +144,8 @@ UdpM_Works(UdpM *m)
         int RecvState;
         int ContextState;
         int KeepServing;
+        /* No naked block: the `case 0' branch below uses this (C89). */
+        int CountOfTimeout;
 
         /* IsServer is toggled to 0 by Modules_SafeCleanup on shutdown.  Read
          * it under the module spin lock so the read is synchronized with that
@@ -237,29 +239,25 @@ UdpM_Works(UdpM *m)
 
             case 0:
                 #define RECREATION_THRESHOLD    8
+                /* Read CountOfTimeout under the lock: the sweep thread
+                   increments it concurrently, so a plain read is a data
+                   race that can yield a torn value.  Retiring m->Departure
+                   needs the same lock, because UdpM_Send() reads it and
+                   sends on it while holding it. */
+                EFFECTIVE_LOCK_GET(m->Lock);
+                CountOfTimeout = m->CountOfTimeout;
+
+                if( CountOfTimeout > RECREATION_THRESHOLD )
                 {
-                    int CountOfTimeout;
+                    FD_CLR(m->Departure, &ReadSet);
+                    CLOSE_SOCKET(m->Departure);
+                    m->Departure = INVALID_SOCKET;
+                }
+                EFFECTIVE_LOCK_RELEASE(m->Lock);
 
-                    /* Read CountOfTimeout under the lock: the sweep thread
-                       increments it concurrently, so a plain read is a data
-                       race that can yield a torn value.  Retiring m->Departure
-                       needs the same lock, because UdpM_Send() reads it and
-                       sends on it while holding it. */
-                    EFFECTIVE_LOCK_GET(m->Lock);
-                    CountOfTimeout = m->CountOfTimeout;
-
-                    if( CountOfTimeout > RECREATION_THRESHOLD )
-                    {
-                        FD_CLR(m->Departure, &ReadSet);
-                        CLOSE_SOCKET(m->Departure);
-                        m->Departure = INVALID_SOCKET;
-                    }
-                    EFFECTIVE_LOCK_RELEASE(m->Lock);
-
-                    if( CountOfTimeout > RECREATION_THRESHOLD )
-                    {
-                        WARNING("UDP socket is about to be recreated.\n");
-                    }
+                if( CountOfTimeout > RECREATION_THRESHOLD )
+                {
+                    WARNING("UDP socket is about to be recreated.\n");
                 }
                 continue;
                 break;

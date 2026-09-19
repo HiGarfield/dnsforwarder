@@ -54,11 +54,11 @@ static void *StringList_Add(StringList *s,
                             )
 {
     StableBuffer *sb;
+    /* No naked block: hoisted to the head of the function (C89). */
+    void *Here;
 
     sb = &(s->Buffer);
 
-    {
-    void *Here;
     Here = sb->Add(sb, str, strlen(str) + 1, FALSE);
     if( Here == NULL )
     {
@@ -68,7 +68,6 @@ static void *StringList_Add(StringList *s,
     Divide(Here, Delimiters);
 
     return Here;
-    }
 }
 
 /* Unsafe operation, it may change strings' positions */
@@ -88,6 +87,8 @@ static int StringList_AppendLast(StringList *s,
     int LastHalfLength;
     char *NewStr;
     char *NewlyAdded;
+    /* No naked block: the backwards scan below uses this (C89). */
+    char *Tail;
 
     if( s == NULL )
     {
@@ -127,18 +128,14 @@ static int StringList_AppendLast(StringList *s,
     /* Find the start of the last string in the block. A valid block ends
        with a terminated-0, so scan backwards for the previous NUL that
        terminates the second-to-last string. */
+    l = b + Used - 1; /* points at the terminating-0 of the block */
+    Tail = l;
+    while( Tail > b && *(Tail - 1) != '\0' )
     {
-        char *Tail;
-
-        l = b + Used - 1; /* points at the terminating-0 of the block */
-        Tail = l;
-        while( Tail > b && *(Tail - 1) != '\0' )
-        {
-            --Tail;
-        }
-        l = Tail; /* start of the last string */
-        LastHalfLength = Used - (l - b); /* Including terminated-0 */
+        --Tail;
     }
+    l = Tail; /* start of the last string */
+    LastHalfLength = Used - (l - b); /* Including terminated-0 */
 
     StrLength = strlen(str) + 1; /* Including terminated-0 */
     NewStr = SafeMalloc(StrLength + LastHalfLength - 1);

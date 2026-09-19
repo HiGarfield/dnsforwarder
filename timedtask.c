@@ -357,6 +357,11 @@ TimeTask_Work(void *Unused)
     while( TRUE )
     {
         BOOL WantExit;
+        /* No naked block: the `default' switch case below uses these (C89).
+           `ni' stays static so its value is well defined even after a short
+           read. */
+        static TaskInfo ni;
+        int r;
 
         GET_MUTEX(TimedTask_ExitMutex);
         WantExit = TimedTask_ToExit;
@@ -431,32 +436,29 @@ TimeTask_Work(void *Unused)
                 TimeTask_ReduceTime(&Elapsed);
             }
 
-            {
-                static TaskInfo ni;
-                int r = TimedTask_ReadOneTask(ReadFrom, &ni);
+            r = TimedTask_ReadOneTask(ReadFrom, &ni);
 
-                /* A partial/short read (e.g. a lone 1-byte wake-up byte from
-                   TimedTask_Cleanup, or a signal-interrupted read) MUST be
-                   discarded, never enqueued as a (corrupted) task. A complete
-                   read is safe to add. */
-                /* FIX(#005): do not `break` out of the switch on these error
-                   paths -- falling through to the re-add of `i` below is what
-                   keeps the in-flight task alive.  Breaking lost it (it is
-                   already unlinked from the queue) and leaked the node. */
-                if( r == 1 )
+            /* A partial/short read (e.g. a lone 1-byte wake-up byte from
+               TimedTask_Cleanup, or a signal-interrupted read) MUST be
+               discarded, never enqueued as a (corrupted) task. A complete
+               read is safe to add. */
+            /* FIX(#005): do not `break` out of the switch on these error
+               paths -- falling through to the re-add of `i` below is what
+               keeps the in-flight task alive.  Breaking lost it (it is
+               already unlinked from the queue) and leaked the node. */
+            if( r == 1 )
+            {
+                if( TimeTask_ReallyAdd(&ni) != 0 )
                 {
-                    if( TimeTask_ReallyAdd(&ni) != 0 )
-                    {
-                        /** TODO: Show fatal error */
-                    }
-                } else if( r < 0 ) {
                     /** TODO: Show fatal error */
                 }
+            } else if( r < 0 ) {
+                /** TODO: Show fatal error */
             }
 
             if( i != NULL )
             {
-                int r = TimeTask_ReallyAdd(i);
+                r = TimeTask_ReallyAdd(i);
                 LinkedQueue_FreeNode(i);
                 if( r != 0 )
                 {
@@ -611,6 +613,11 @@ static void TimedTask_Cleanup(void)
 int TimedTask_Init(void)
 {
     ThreadHandle t = NULL_THREAD;
+#ifndef _WIN32
+    /* No naked block: the non-blocking pipe setup in the POSIX branch below
+       uses this; declared at the head of the function (C89). */
+    int Flags;
+#endif /* _WIN32 */
 
     if( LinkedQueue_Init(&TimeQueue,
                          sizeof(TaskInfo),
@@ -649,16 +656,14 @@ int TimedTask_Init(void)
        JOIN_THREAD() would hang the whole process at shutdown.  With O_NONBLOCK
        the follow-up read() fails with EAGAIN, the short read is discarded and
        the worker re-checks the exit flag and terminates. */
+    Flags = fcntl(ReadFrom, F_GETFL, 0);
+    if( Flags < 0 || fcntl(ReadFrom, F_SETFL, Flags | O_NONBLOCK) != 0 )
     {
-        int Flags = fcntl(ReadFrom, F_GETFL, 0);
-        if( Flags < 0 || fcntl(ReadFrom, F_SETFL, Flags | O_NONBLOCK) != 0 )
-        {
-            close(ReadFrom);
-            close(WriteTo);
-            DESTROY_MUTEX(TimedTask_ExitMutex);
-            TimeQueue.Free(&TimeQueue);
-            return -25;
-        }
+        close(ReadFrom);
+        close(WriteTo);
+        DESTROY_MUTEX(TimedTask_ExitMutex);
+        TimeQueue.Free(&TimeQueue);
+        return -25;
     }
 #endif /* _WIN32 */
 

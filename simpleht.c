@@ -63,6 +63,11 @@ static int SimpleHT_Expand(SimpleHT *ht)
     int NumberOfNodes = Array_GetUsed(&(ht->Nodes));
     Sht_NodeHead *nh = NULL;
     int loop;
+    /* No naked block: the slot-clearing pass below uses these, declared at
+       the head of the function (C89). */
+    size_t  Used;
+    size_t  ElemLen;
+    size_t  Bytes;
 
     for( loop = 0; loop < NumberOfSlots_Old; ++loop )
     {
@@ -83,19 +88,16 @@ static int SimpleHT_Expand(SimpleHT *ht)
        and reject an overflowing request instead of letting the multiplication
        wrap to a small/negative value and silently under-clearing the slot
        array (which would leave stale node indices and corrupt the chains). */
-    {
-        size_t  Used    = (size_t)Array_GetUsed(&(ht->Slots));
-        size_t  ElemLen = (size_t)ht->Slots.DataLength;
-        size_t  Bytes;
+    Used    = (size_t)Array_GetUsed(&(ht->Slots));
+    ElemLen = (size_t)ht->Slots.DataLength;
 
-        if( ElemLen != 0 && Used > SIZE_MAX / ElemLen )
-        {
-            ht->Slots.Used = NumberOfSlots_Old;
-            return -1;
-        }
-        Bytes = Used * ElemLen;
-        memset(ht->Slots.Data, -1, Bytes);
+    if( ElemLen != 0 && Used > SIZE_MAX / ElemLen )
+    {
+        ht->Slots.Used = NumberOfSlots_Old;
+        return -1;
     }
+    Bytes = Used * ElemLen;
+    memset(ht->Slots.Data, -1, Bytes);
 
     for( loop = 0; loop < NumberOfNodes; ++loop )
     {

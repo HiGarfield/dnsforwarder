@@ -59,6 +59,11 @@ struct _Header{
 
 static void DNSCacheTTLCountdown_Task(void *Unused, void *Unused2)
 {
+    const Array *ChunkList;
+    int         loop;
+    Cht_Node    *Node;
+    time_t      CurrentTime;
+
     /* Take the cache write lock *before* touching any shared cache state
      * (including the CacheInfo pointer itself).  Without this, the very first
      * read of CacheInfo->NodeChunk races with the one-time initialization
@@ -66,21 +71,20 @@ static void DNSCacheTTLCountdown_Task(void *Unused, void *Unused2)
      * holding the lock for the scan is acceptable. */
     RWLock_WrLock(CacheLock);
 
+    /* No naked block: it is merged into the function block, so its
+       declarations live at the head above (C89). */
+    ChunkList = &(CacheInfo->NodeChunk);
+    loop = ChunkList->Used - 1;
+
+    if( loop < 0 )
     {
-        const Array *ChunkList = &(CacheInfo->NodeChunk);
-        int         loop = ChunkList->Used - 1;
-        Cht_Node    *Node;
-        time_t      CurrentTime;
+        RWLock_UnWLock(CacheLock);
+        return;
+    }
 
-        if( loop < 0 )
-        {
-            RWLock_UnWLock(CacheLock);
-            return;
-        }
+    Node = (Cht_Node *)Array_GetBySubscript(ChunkList, loop);
 
-        Node = (Cht_Node *)Array_GetBySubscript(ChunkList, loop);
-
-        CurrentTime = time(NULL);
+    CurrentTime = time(NULL);
 
 
     while( Node != NULL )
@@ -130,7 +134,6 @@ static void DNSCacheTTLCountdown_Task(void *Unused, void *Unused2)
     }
 
     RWLock_UnWLock(CacheLock);
-    }
 }
 
 static BOOL IsReloadable(void)
@@ -636,8 +639,8 @@ static int DNSCache_AddAItemToCache(DnsSimpleParserIterator *i,
     /* Determine whether the cache item has existed in the main cache zone */
     if(DNSCache_FindFromCache(Item, BufferItr - Item, NULL, CurrentTime) == NULL)
     {
-        /* If not, add it */
-        {
+        /* If not, add it.  No naked block: it is merged into this block, so
+           its declarations are at the head here (C89). */
         int32_t Subscript;
         uint32_t RecordTTL;
         Cht_Node    *Node;
@@ -672,6 +675,13 @@ static int DNSCache_AddAItemToCache(DnsSimpleParserIterator *i,
 
         if( TtlContent != NULL )
         {
+            /* No naked block: the saturating multiplication in the default
+               case uses these three temporaries, declared at the head of this
+               block (C89). */
+            uint32_t coeff;
+            uint32_t base;
+            uint32_t prod;
+
             switch( TtlContent->State )
             {
                 case TTL_STATE_NO_CACHE:
@@ -689,22 +699,19 @@ static int DNSCache_AddAItemToCache(DnsSimpleParserIterator *i,
                        the maximum directly instead of letting it wrap to a tiny
                        value (which would corrupt the cached record's lifetime).
                        Then add the increment with the same saturation. */
+                    coeff = TtlContent->Coefficient;
+                    base  = i->GetTTL(i);
+                    if( coeff != 0 && base > 0xFFFFFFFFU / coeff )
                     {
-                        uint32_t coeff = TtlContent->Coefficient;
-                        uint32_t base  = i->GetTTL(i);
-                        uint32_t prod;
-                        if( coeff != 0 && base > 0xFFFFFFFFU / coeff )
-                        {
-                            prod = 0xFFFFFFFFU;
-                        }
-                        else
-                        {
-                            prod = coeff * base;
-                        }
-                        RecordTTL = (prod >= 0xFFFFFFFFU - TtlContent->Increment)
-                                    ? 0xFFFFFFFFU
-                                    : prod + TtlContent->Increment;
+                        prod = 0xFFFFFFFFU;
                     }
+                    else
+                    {
+                        prod = coeff * base;
+                    }
+                    RecordTTL = (prod >= 0xFFFFFFFFU - TtlContent->Increment)
+                                ? 0xFFFFFFFFU
+                                : prod + TtlContent->Increment;
                     break;
             }
         } else {
@@ -749,7 +756,6 @@ static int DNSCache_AddAItemToCache(DnsSimpleParserIterator *i,
         } else {
             WARNING("No available cache: %s\n", Item);
             return -1;
-        }
         }
     }
 
@@ -971,6 +977,11 @@ static Cht_Node *DNSCache_GetCNameFromCache(__in char *Name,
                                                  Node,
                                                  CurrentTime
                                                  );
+        /* No naked block: the bounded CNAME copy further down uses these
+           locals, declared at the head of the loop body (C89). */
+        const char *Src;
+        int j;
+        int32_t SrcAvail;
         if( Node != NULL ) {
             if( iNode != NULL )
             {
@@ -995,24 +1006,20 @@ static Cht_Node *DNSCache_GetCNameFromCache(__in char *Name,
          * partly or wholly outside the mapping when the cache file is
          * truncated, so also clamp the source read to CacheSize to avoid an
          * out-of-bounds read of the mapping. */
+        Src = MapStart + Node->Offset + 1 + strlen(Name_Type_Class) + 1;
+
+        if( Src >= MapStart + CacheSize )
         {
-            const char *Src = MapStart + Node->Offset + 1 + strlen(Name_Type_Class) + 1;
-            int j;
-            int32_t SrcAvail;
-
-            if( Src >= MapStart + CacheSize )
-            {
-                SrcAvail = 0;
-            } else {
-                SrcAvail = CacheSize - (int32_t)(Src - MapStart);
-            }
-
-            for( j = 0; j < BufferLength - 1 && j < SrcAvail && Src[j] != '\0'; ++j )
-            {
-                Buffer[j] = Src[j];
-            }
-            Buffer[j] = '\0';
+            SrcAvail = 0;
+        } else {
+            SrcAvail = CacheSize - (int32_t)(Src - MapStart);
         }
+
+        for( j = 0; j < BufferLength - 1 && j < SrcAvail && Src[j] != '\0'; ++j )
+        {
+            Buffer[j] = Src[j];
+        }
+        Buffer[j] = '\0';
 
     } while( TRUE );
 

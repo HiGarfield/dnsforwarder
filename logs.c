@@ -35,6 +35,10 @@ static void Log_Cleanup(void)
 
 int Log_Init(ConfigFileInfo *ConfigInfo, BOOL PrintScreen, BOOL Debug)
 {
+    /* No naked block: the log path below is built from this, declared at the
+       head of the function (C89). */
+    const char *LogFolder;
+
     PrintConsole = PrintScreen;
     DebugOn = Debug;
 
@@ -45,24 +49,22 @@ int Log_Init(ConfigFileInfo *ConfigInfo, BOOL PrintScreen, BOOL Debug)
         return 0;
     }
 
-    {
-        const char *LogFolder = ConfigGetRawString(ConfigInfo, "LogFileFolder");
+    LogFolder = ConfigGetRawString(ConfigInfo, "LogFileFolder");
 
-        /* ConfigGetRawString may return NULL when LogFileFolder is unset;
-           passing NULL to snprintf's %s is implementation-defined (glibc
-           prints "(null)", other libc may crash).  Fall back to an empty
-           string so the path is built safely. */
-        if( snprintf(FilePath,
-                     sizeof(FilePath),
-                     "%s%cdnsforwarder.log",
-                     LogFolder != NULL ? LogFolder : "",
-                     PATH_SLASH_CH
-                     )
-            >= (int)sizeof(FilePath)
-        )
-        {
-            return -36;
-        }
+    /* ConfigGetRawString may return NULL when LogFileFolder is unset;
+       passing NULL to snprintf's %s is implementation-defined (glibc
+       prints "(null)", other libc may crash).  Fall back to an empty
+       string so the path is built safely. */
+    if( snprintf(FilePath,
+                 sizeof(FilePath),
+                 "%s%cdnsforwarder.log",
+                 LogFolder != NULL ? LogFolder : "",
+                 PATH_SLASH_CH
+                 )
+       >= (int)sizeof(FilePath)
+    )
+    {
+        return -36;
     }
 
     LogFile = fopen(FilePath, "r+");

@@ -320,6 +320,10 @@ int GetFromInternet_Base(const char *URL, const char *File)
     char        Buffer[4096];
     int         ret = 0;
     int         TimeOut = 30000;
+    /* No naked block: the HTTP status query below uses these, declared at the
+       head of the function (C89). */
+    DWORD       StatusCode;
+    DWORD       StatusSize;
 
     webopen = InternetOpen("dnsforwarder", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
     if( webopen == NULL ){
@@ -342,22 +346,20 @@ int GetFromInternet_Base(const char *URL, const char *File)
     /* Reject HTTP error responses (4xx/5xx): InternetOpenUrl succeeds even for
        error pages, so without this check a "404 Not Found" body would be
        written out and could overwrite a valid hosts file. */
-    {
-        DWORD StatusCode  = 0;
-        DWORD StatusSize  = sizeof(StatusCode);
+    StatusCode = 0;
+    StatusSize = sizeof(StatusCode);
 
-        if( HttpQueryInfoA(webopenurl,
-                           HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
-                           &StatusCode,
-                           &StatusSize,
-                           NULL
-                           )
-            && StatusCode >= 400 )
-        {
-            WARNING("HTTP status %lu for %s, download skipped.\n", StatusCode, URL);
-            ret = -1;
-            goto Exit_2;
-        }
+    if( HttpQueryInfoA(webopenurl,
+                       HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
+                       &StatusCode,
+                       &StatusSize,
+                       NULL
+                       )
+        && StatusCode >= 400 )
+    {
+        WARNING("HTTP status %lu for %s, download skipped.\n", StatusCode, URL);
+        ret = -1;
+        goto Exit_2;
     }
 
     fp = fopen(File, "wb" );

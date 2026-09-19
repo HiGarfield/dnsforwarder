@@ -545,6 +545,12 @@ static DnsRecordPurpose DnsSimpleParserIterator_DeterminePurpose(
 
 static char *DnsSimpleParserIterator_Next(DnsSimpleParserIterator *i)
 {
+    /* No naked block: the record-header verification below uses these
+       locals, declared at the head of the function (C89). */
+    char *AfterName;
+    const char *End;
+    int NeedAfterName;
+
     if( i->CurrentPosition == NULL )
     {
         i->CurrentPosition = i->Parser->RawDns + DNS_HEADER_LENGTH;
@@ -606,45 +612,43 @@ static char *DnsSimpleParserIterator_Next(DnsSimpleParserIterator *i)
        4 bytes (type + class). Verify that those bytes, and for a resource
        record the TTL and RDLENGTH that follow, are really inside the message
        before touching them. */
-    {
-        char *AfterName = DNSJumpOverNameSafe(i->Parser->RawDns,
-                                              i->Parser->RawDnsLength,
-                                              i->CurrentPosition);
-        const char *End = i->Parser->RawDns + i->Parser->RawDnsLength;
-        int NeedAfterName =
-            i->Purpose == DNS_RECORD_PURPOSE_QUESTION ? 4 : 10;
+    AfterName = DNSJumpOverNameSafe(i->Parser->RawDns,
+                                    i->Parser->RawDnsLength,
+                                    i->CurrentPosition);
+    End = i->Parser->RawDns + i->Parser->RawDnsLength;
+    NeedAfterName =
+        i->Purpose == DNS_RECORD_PURPOSE_QUESTION ? 4 : 10;
 
-        if( AfterName == NULL || End - AfterName < NeedAfterName )
+    if( AfterName == NULL || End - AfterName < NeedAfterName )
+    {
+        i->CurrentPosition = NULL;
+        i->RecordPosition = 0;
+        return NULL;
+    }
+
+    /* Derive the RDATA position and length from AfterName, which is
+       guaranteed to lie inside the message.  The previous code re-derived
+       the position with the unsafe DNSJumpOverName()/DNSGetResourceDataPos()
+       macros, which can return a pointer OUTSIDE the message when a
+       compression pointer redirects before the message start.  The bounds
+       test "RDataPos + DataLength > End" then compared pointers from two
+       different objects -- undefined behaviour whose result is
+       unpredictable -- and a crafted RDLENGTH could slip through, letting
+       ToCacheData()/TextifyData() read far past the end of the packet. */
+    if( i->Purpose == DNS_RECORD_PURPOSE_QUESTION )
+    {
+        /* Questions carry no RDATA; keep DataLength well defined. */
+        i->DataLength = 0;
+    }
+    else
+    {
+        i->DataLength = GET_16_BIT_U_INT(AfterName + 8);
+
+        if( AfterName + 10 + i->DataLength > End )
         {
             i->CurrentPosition = NULL;
             i->RecordPosition = 0;
             return NULL;
-        }
-
-        /* Derive the RDATA position and length from AfterName, which is
-           guaranteed to lie inside the message.  The previous code re-derived
-           the position with the unsafe DNSJumpOverName()/DNSGetResourceDataPos()
-           macros, which can return a pointer OUTSIDE the message when a
-           compression pointer redirects before the message start.  The bounds
-           test "RDataPos + DataLength > End" then compared pointers from two
-           different objects -- undefined behaviour whose result is
-           unpredictable -- and a crafted RDLENGTH could slip through, letting
-           ToCacheData()/TextifyData() read far past the end of the packet. */
-        if( i->Purpose == DNS_RECORD_PURPOSE_QUESTION )
-        {
-            /* Questions carry no RDATA; keep DataLength well defined. */
-            i->DataLength = 0;
-        }
-        else
-        {
-            i->DataLength = GET_16_BIT_U_INT(AfterName + 8);
-
-            if( AfterName + 10 + i->DataLength > End )
-            {
-                i->CurrentPosition = NULL;
-                i->RecordPosition = 0;
-                return NULL;
-            }
         }
     }
 
@@ -1308,6 +1312,9 @@ static int DnsSimpleParserIterator_ParseTxt(DnsSimpleParserIterator *i,
 {
     char Example[256];
     char *Resulting;
+    /* No naked block: the TXT copy below uses this, declared at the head of
+       the function (C89). */
+    int ResultingSize;
 
     int ret = -1;
 
@@ -1346,16 +1353,14 @@ static int DnsSimpleParserIterator_ParseTxt(DnsSimpleParserIterator *i,
      * `Example` buffer (256 bytes) or a heap buffer of size i->DataLength + 1.
      * Passing sizeof(Example) unconditionally wrongly capped the limit at 256
      * and rejected valid TXT records whose RDATA is exactly 256 octets. */
-    {
-        int ResultingSize = (i->DataLength >= (int)sizeof(Example))
-                            ? (int)i->DataLength + 1
-                            : (int)sizeof(Example);
+    ResultingSize = (i->DataLength >= (int)sizeof(Example))
+                    ? (int)i->DataLength + 1
+                    : (int)sizeof(Example);
 
-        if( DNSRRGetString(Data, i->DataLength, Resulting, ResultingSize) < 0 )
-        {
-            *Buffer = '\0';
-            goto EXIT;
-        }
+    if( DNSRRGetString(Data, i->DataLength, Resulting, ResultingSize) < 0 )
+    {
+        *Buffer = '\0';
+        goto EXIT;
     }
 
     if( ReplaceStr_WithLengthChecking(Buffer,

@@ -322,6 +322,10 @@ static int DaemonInit(void)
 #else /* _WIN32 */
 
     pid_t   pid;
+    /* No naked block: the /dev/null re-open below uses this, declared at the
+       head of the block (C89). */
+    int     fd;
+
     if( (pid = fork()) < 0 )
     {
         return 1;
@@ -340,29 +344,27 @@ static int DaemonInit(void)
            this in Log_Init()/UdpFrontend_Init() -- so any printf/perror (or
            library write to stderr) would spray text straight into a DNS
            socket.  Re-open them on /dev/null instead. */
+        fd = open("/dev/null", O_RDWR);
+        if( fd >= 0 )
         {
-            int fd = open("/dev/null", O_RDWR);
-            if( fd >= 0 )
+            dup2(fd, 0);
+            dup2(fd, 1);
+            dup2(fd, 2);
+            if( fd > 2 )
             {
-                dup2(fd, 0);
-                dup2(fd, 1);
-                dup2(fd, 2);
-                if( fd > 2 )
-                {
-                    close(fd);
-                }
-            } else {
-                close(0);
-                close(1);
-                close(2);
+                close(fd);
             }
+        } else {
+            close(0);
+            close(1);
+            close(2);
         }
         /* FIX(#008): do not clear the umask.  With umask(0) everything the
            daemon creates afterwards -- the log file, the cache file, the
-           downloaded hosts files, statistic.html -- is mode 0666, i.e. world
-           writable, so a local user could rewrite the hosts rules that drive
-           every DNS answer.  0022 keeps the owner-writable-only behaviour the
-           rest of the code assumes. */
+           downloaded hosts files, statistic.html -- is mode 0666, i.e.
+           world writable, so a local user could rewrite the hosts rules that
+           drive every DNS answer.  0022 keeps the owner-writable-only
+           behaviour the rest of the code assumes. */
         umask(0022);
         return 0;
     }

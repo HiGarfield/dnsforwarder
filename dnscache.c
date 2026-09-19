@@ -872,6 +872,30 @@ static int DNSCache_GetRawRecordsFromCache(__in    const char *Name,
             /* Skip key to get data */
             CacheItr = MapStart + Node->Offset + 1 + KeyLength + 1;
 
+            /* FIX(#014): DnsGenerator_Generate() renders CNAME/PTR/NS (and the
+               exchange of MX) with bare strlen()/strcpy() -- it ignores
+               DataLength for those types -- so the cached name must be
+               terminated *inside this record's own data*.  A truncated or
+               hand-edited cache file (MemoryCache=false + ReloadCache=true)
+               can leave the last record unterminated, and the read then runs
+               past the record, past the end of the mapping, until it happens
+               to find a zero byte.  DNSCache_GetCNameFromCache() already
+               clamps the same copy; do it here too. */
+            if( Type == DNS_TYPE_CNAME ||
+                Type == DNS_TYPE_PTR ||
+                Type == DNS_TYPE_NS ||
+                Type == DNS_TYPE_MX
+              )
+            {
+                const char *DataEnd = MapStart + Node->Offset + Node->UsedLength;
+
+                if( DataEnd <= CacheItr ||
+                    memchr(CacheItr, '\0', (size_t)(DataEnd - CacheItr)) == NULL )
+                {
+                    break;
+                }
+            }
+
             /* Now the data position */
             iRet = g->Generate(g, Name, Type, Klass, CacheItr,
                         MapStart + Node->Offset + Node->UsedLength - CacheItr,

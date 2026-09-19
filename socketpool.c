@@ -72,7 +72,12 @@ static int SocketPool_Fetch_Inner(Bst *t,
     SOCKET *s = (SOCKET *)Data;
     SocketPool_Fetch_Arg *Arg = (SocketPool_Fetch_Arg *)ArgVoid;
 
-    if( FD_ISSET(*s, Arg->fs) )
+    /* FIX(#018): FD_ISSET() does no range checking either.  Every socket in
+       the pool came through SocketPuller_Add(), which rejects descriptors >=
+       FD_SETSIZE, so this is belt-and-braces; but a descriptor added by a
+       caller that bypasses the puller (or a negative one) would otherwise be
+       used to index the fixed-size fd_set bitmap out of bounds. */
+    if( *s >= 0 && *s < FD_SETSIZE && FD_ISSET(*s, Arg->fs) )
     {
         Arg->Sock = *s;
 

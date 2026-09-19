@@ -50,6 +50,17 @@ PUBFUNC int SocketPuller_Add(SocketPuller *p,
 
 PUBFUNC int SocketPuller_Del(SocketPuller *p, SOCKET s)
 {
+    /* FIX(#018): SocketPuller_Add() refuses INVALID_SOCKET and any descriptor
+       >= FD_SETSIZE, but Del() happily ran FD_CLR() on whatever it was given.
+       FD_CLR(-1) does `1UL << (fd % 64)` on a negative value (undefined
+       behaviour) and an out-of-range descriptor writes past the end of the
+       fd_set bitmap.  The TCP frontend drops clients with
+       TcpFrontend_ClientGone() -> Frontend.Del() on exactly such paths. */
+    if( s == INVALID_SOCKET || s < 0 || s >= FD_SETSIZE )
+    {
+        return -33;
+    }
+
     if( p->p.Del(&(p->p), s) != 0 )
     {
         return -33;

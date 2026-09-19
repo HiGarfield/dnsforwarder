@@ -387,7 +387,18 @@ TimeTask_Work(void *Unused)
                old code spun forever here and, because it never re-checked
                TimedTask_ToExit, made TimedTask_Cleanup()'s JOIN_THREAD hang
                the whole process on shutdown. Fall through to the loop's exit
-               check and retry instead. */
+               check and retry instead.
+               FIX(#005): `i` was already unlinked by TimeQueue.Get() above,
+               so simply leaving the switch lost the pending task (and leaked
+               its node) -- the periodic cache sweep / statistics / hosts
+               refresh silently stopped for good.  Put it back before
+               retrying. */
+            if( i != NULL )
+            {
+                (void)TimeTask_ReallyAdd(i);
+                LinkedQueue_FreeNode(i);
+                i = NULL;
+            }
             break;
 
         case 0:
@@ -428,16 +439,18 @@ TimeTask_Work(void *Unused)
                    TimedTask_Cleanup, or a signal-interrupted read) MUST be
                    discarded, never enqueued as a (corrupted) task. A complete
                    read is safe to add. */
+                /* FIX(#005): do not `break` out of the switch on these error
+                   paths -- falling through to the re-add of `i` below is what
+                   keeps the in-flight task alive.  Breaking lost it (it is
+                   already unlinked from the queue) and leaked the node. */
                 if( r == 1 )
                 {
                     if( TimeTask_ReallyAdd(&ni) != 0 )
                     {
                         /** TODO: Show fatal error */
-                        break;
                     }
                 } else if( r < 0 ) {
                     /** TODO: Show fatal error */
-                    break;
                 }
             }
 

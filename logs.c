@@ -100,7 +100,12 @@ static void CheckLength(void)
 {
     if( CurrentLength >= ThresholdLength )
     {
-        char FileRenamed[MAX_PATH_BUFFER + 8];
+        /* FIX(#010): FilePath may hold up to MAX_PATH_BUFFER - 1 characters
+           and the ".%d" suffix up to 12 of them ("-2147483648" + '\0'), so
+           MAX_PATH_BUFFER + 8 was too small.  A truncated name made
+           snprintf() bail out below, which used to leave LogFile NULL and
+           silently disabled logging for the rest of the process lifetime. */
+        char FileRenamed[MAX_PATH_BUFFER + 16];
 
         fclose(LogFile);
         /* Mark the handle as closed. CheckLength() has several early-return

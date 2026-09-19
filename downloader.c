@@ -37,6 +37,15 @@
    exit. */
 static volatile BOOL Downloader_Aborted = FALSE;
 
+#ifdef DOWNLOAD_LIBCURL
+/* Transfer limits for the libcurl backend (see FIX(#011) in the function
+   below): without them a slow or hostile server could pin the hosts-reload
+   thread inside curl_easy_perform() for ever. */
+#define DOWNLOAD_CONNECT_TIMEOUT_S  15L
+#define DOWNLOAD_TOTAL_TIMEOUT_S    120L
+#define DOWNLOAD_MAX_REDIRS         5L
+#endif /* DOWNLOAD_LIBCURL */
+
 void Downloader_Abort(void)
 {
     Downloader_Aborted = TRUE;
@@ -427,6 +436,25 @@ Exit_1:
 
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+    /* FIX(#011): the transfer had no limits at all, so a slow or hostile
+       server pinned the hosts-reload thread inside curl_easy_perform()
+       forever (dynamichosts.c waits on it) and `Downloader_Abort()` -- which
+       is only observed between transfers -- could never take effect.
+         - CONNECTTIMEOUT/TIMEOUT bound the connect and the whole transfer;
+         - MAXREDIRS bounds FOLLOWLOCATION, which defaults to unlimited and
+           therefore followed redirect loops;
+         - NOSIGNAL is mandatory in a multithreaded program: without it
+           libcurl uses SIGALRM for name-resolution timeouts and the signal is
+           delivered to an arbitrary thread, interrupting unrelated
+           syscalls (documented libcurl requirement).
+       CURLOPT_SSL_VERIFYPEER/VERIFYHOST are deliberately left as they are --
+       tightening them is a policy decision (CA bundles on embedded/minimal
+       hosts), see the audit report. */
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, DOWNLOAD_CONNECT_TIMEOUT_S);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, DOWNLOAD_TOTAL_TIMEOUT_S);
+    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, DOWNLOAD_MAX_REDIRS);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
     res = curl_easy_perform(curl);
     if( res != CURLE_OK )

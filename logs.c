@@ -24,7 +24,13 @@ static void Log_Cleanup(void)
     {
         fclose(LogFile);
     }
-    EFFECTIVE_LOCK_DESTROY(PrintLock);
+    /* FIX(#009): do NOT destroy PrintLock.  main() ends with
+       ExitThisThread() (pthread_exit of the main thread) while the UDP/TCP
+       frontend, module and timed-task threads are still running and may call
+       Log_Print(), which takes this lock -- destroying it here is
+       use-after-destroy undefined behaviour.  Every other subsystem in this
+       project (udpm/tcpm/dynamichosts/ipmisc/filter) already follows the same
+       convention: the lock dies with the process. */
 }
 
 int Log_Init(ConfigFileInfo *ConfigInfo, BOOL PrintScreen, BOOL Debug)
